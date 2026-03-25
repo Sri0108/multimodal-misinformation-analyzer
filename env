@@ -1,0 +1,11 @@
+SECRET_KEY=super-secret-key-change-in-production-12345
+JWT_SECRET_KEY=jwt-super-secret-key-change-in-production-67890
+JWT_ACCESS_TOKEN_EXPIRES=86400
+DATABASE_URL=mysql+pymysql://root:root%40123@localhost:3306/misinformation_db
+UPLOAD_FOLDER=uploads
+REPORT_FOLDER=reports
+TESSERACT_PATH=C:\Program Files\Tesseract-OCR\tesseract.exe
+FLASK_ENV=development
+FLASK_DEBUG=true
+FLASK_HOST=0.0.0.0
+FLASK_PORT=5000

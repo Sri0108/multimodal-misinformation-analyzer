@@ -1,0 +1,17 @@
+Flask
+Flask-CORS
+Flask-SQLAlchemy
+Flask-JWT-Extended
+Werkzeug
+PyMySQL
+cryptography
+scikit-learn
+numpy
+Pillow
+pytesseract
+textblob
+reportlab
+requests
+beautifulsoup4
+python-docx
+PyPDF2
