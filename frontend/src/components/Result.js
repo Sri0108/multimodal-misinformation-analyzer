@@ -121,6 +121,23 @@ function Result({ token }) {
       }
 
       setSummary(data.summary);
+      if (data.extracted_text) {
+        setAnalysis((current) => {
+          if (!current?.result) {
+            return current;
+          }
+
+          const next = {
+            ...current,
+            result: {
+              ...current.result,
+              extracted_text: data.extracted_text,
+            },
+          };
+          localStorage.setItem('latestAnalysis', JSON.stringify(next));
+          return next;
+        });
+      }
     } catch (error) {
       alert(error.message);
     } finally {

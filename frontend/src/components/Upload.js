@@ -89,6 +89,7 @@ function evaluateCyberMessage(message) {
 
   const reporting = [
     'If you are in the US: Report to IC3 (ic3.gov) and FTC (reportfraud.ftc.gov).',
+    'If you are in India: Report to the National Cyber Crime Reporting Portal at cybercrime.gov.in or call 1930.',
     'Report the message in-app (email/SMS/social platform) and block sender.',
     'For immediate danger or financial loss, contact local law enforcement.',
   ];
@@ -326,7 +327,7 @@ function Upload({ token, onLogout }) {
       ];
 
     const reportLinks = isFake
-      ? ['https://reportfraud.ftc.gov/', 'https://www.ic3.gov/']
+      ? ['https://cybercrime.gov.in/', 'https://reportfraud.ftc.gov/', 'https://www.ic3.gov/']
       : [];
 
     setChatMessages((prev) => [

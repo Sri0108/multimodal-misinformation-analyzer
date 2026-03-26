@@ -15,3 +15,7 @@ requests
 beautifulsoup4
 python-docx
 PyPDF2
+newspaper3k
+transformers
+torch
+sentencepiece
