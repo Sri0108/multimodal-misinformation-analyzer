@@ -3,7 +3,7 @@ services:
     name: multimodal-misinformation-analyzer
     runtime: docker
     plan: free
-    region: oregon
+    region: ohio
     dockerfilePath: ./Dockerfile
     dockerContext: .
     autoDeploy: true
@@ -27,4 +27,4 @@ services:
 databases:
   - name: misinformation-db
     plan: free
-    region: oregon
+    region: ohio

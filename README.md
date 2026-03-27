@@ -101,6 +101,35 @@ This repo now includes a `Dockerfile` and `render.yaml` so you can deploy it dir
 3. If using Blueprint, Render will detect `render.yaml`
 4. Deploy the service
 
+### Manual Render Web Service setup
+
+If you are creating a normal Render Web Service instead of a Blueprint, use these settings:
+
+- Language: `Docker`
+- Branch: your deployed branch such as `develop`
+- Region: `Ohio (US East)` if your database is also in Ohio
+- Root Directory: leave blank
+- Docker Build Context Directory: leave blank or set `.`
+- Dockerfile Path: leave blank or set `./Dockerfile`
+- Health Check Path: `/api/health`
+
+Recommended environment variables for the web service:
+
+- `SECRET_KEY`
+- `DATABASE_URL` = your Render Postgres **Internal Database URL**
+- `SEED_DEFAULT_ADMIN=true`
+- `DEFAULT_ADMIN_EMAIL`
+- `DEFAULT_ADMIN_USERNAME`
+- `DEFAULT_ADMIN_PASSWORD`
+
+Do not use local-only development values on Render such as:
+
+- `DATABASE_URL=mysql+pymysql://root:...@localhost/...`
+- `TESSERACT_PATH=C:\Program Files\Tesseract-OCR\tesseract.exe`
+- `FLASK_DEBUG=true`
+- `FLASK_PORT=5000`
+- `FLASK_ENV=development`
+
 ### Free-tier deployment note
 
 The included `render.yaml` is configured for a free web service and a free Render Postgres database so you can deploy without paid resources for demo/testing use. During Blueprint creation, Render will prompt you to enter:
