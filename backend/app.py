@@ -285,6 +285,16 @@ def require_admin_user():
     return user, None
 
 
+def serialize_user(user):
+    return {
+        "id": user.id,
+        "email": user.email,
+        "username": user.username,
+        "role": user.role,
+        "created_at": user.created_at.isoformat() if user.created_at else None,
+    }
+
+
 def resolve_saved_file_path(file_path):
     resolved = resolve_workspace_path(file_path)
     return resolved if resolved and os.path.exists(resolved) else file_path
@@ -504,6 +514,43 @@ def register():
     db.session.commit()
 
     return jsonify({"message": "User registered"})
+
+
+@app.route("/api/admin/users", methods=["POST"])
+def admin_create_user():
+    _, error_response = require_admin_user()
+    if error_response:
+        return error_response
+
+    data = request.json or {}
+    email = (data.get("email") or "").strip().lower()
+    username = (data.get("username") or "").strip()
+    password = data.get("password") or ""
+    role = (data.get("role") or "user").strip().lower()
+
+    if not email or not username or not password:
+        return jsonify({"error": "Email, username, and password are required"}), 400
+
+    if role not in {"user", "admin"}:
+        return jsonify({"error": "Role must be either user or admin"}), 400
+
+    if User.query.filter_by(email=email).first():
+        return jsonify({"error": "Email already exists"}), 400
+
+    user = User(
+        email=email,
+        username=username,
+        password=generate_password_hash(password),
+        role=role,
+    )
+
+    db.session.add(user)
+    db.session.commit()
+
+    return jsonify({
+        "message": "User created successfully",
+        "user": serialize_user(user),
+    }), 201
 
 
 # -------------------------------
@@ -752,13 +799,7 @@ def admin_overview():
                 for label, count in sorted(prediction_counts.items(), key=lambda item: item[1], reverse=True)
             ],
             "recent_users": [
-                {
-                    "id": user.id,
-                    "email": user.email,
-                    "username": user.username,
-                    "role": user.role,
-                    "created_at": user.created_at.isoformat() if user.created_at else None,
-                }
+                serialize_user(user)
                 for user in users[:6]
             ],
         }

@@ -2537,10 +2537,69 @@ body {
   margin: 0 auto;
 }
 
+.workspace-pro .admin-create-card {
+  margin-bottom: 18px;
+}
+
 .workspace-pro .admin-empty-copy {
   margin: 0;
   color: #546179;
   line-height: 1.6;
+}
+
+.workspace-pro .admin-user-form {
+  display: grid;
+  gap: 14px;
+}
+
+.workspace-pro .admin-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.workspace-pro .admin-input {
+  width: 100%;
+  border: 1px solid #cfdcf0;
+  background: #ffffff;
+  color: #17325d;
+  border-radius: 12px;
+  padding: 12px 13px;
+  outline: none;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.workspace-pro .admin-input:focus {
+  border-color: #4a7fe0;
+  box-shadow: 0 0 0 4px rgba(74, 127, 224, 0.14);
+}
+
+.workspace-pro .admin-select {
+  appearance: none;
+}
+
+.workspace-pro .admin-inline-feedback {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 12px;
+  font-size: 0.88rem;
+  line-height: 1.5;
+}
+
+.workspace-pro .admin-inline-feedback.success {
+  border: 1px solid #b8e5d6;
+  background: #effcf7;
+  color: #156451;
+}
+
+.workspace-pro .admin-inline-feedback.error {
+  border: 1px solid #f1c7c7;
+  background: #fff4f4;
+  color: #9b2f2f;
+}
+
+.workspace-pro .admin-form-actions {
+  align-items: flex-start;
 }
 
 .workspace-pro .admin-table-wrap {
@@ -2694,6 +2753,10 @@ body {
   }
 
   .workspace-pro .admin-mix-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .workspace-pro .admin-form-grid {
     grid-template-columns: 1fr;
   }
 

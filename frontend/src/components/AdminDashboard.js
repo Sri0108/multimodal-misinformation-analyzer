@@ -18,6 +18,13 @@ function predictionTone(label) {
   return 'medium';
 }
 
+const emptyCreateUserForm = {
+  email: '',
+  username: '',
+  password: '',
+  role: 'user',
+};
+
 function AdminDashboard({ token, onLogout }) {
   const navigate = useNavigate();
   const [overview, setOverview] = useState(null);
@@ -25,6 +32,36 @@ function AdminDashboard({ token, onLogout }) {
   const [reports, setReports] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [createUserForm, setCreateUserForm] = useState(emptyCreateUserForm);
+  const [createUserLoading, setCreateUserLoading] = useState(false);
+  const [createUserError, setCreateUserError] = useState('');
+  const [createUserSuccess, setCreateUserSuccess] = useState('');
+
+  const applyAdminData = (overviewData, inputsData, reportsData) => {
+    setOverview(overviewData);
+    setInputs(Array.isArray(inputsData) ? inputsData : []);
+    setReports(Array.isArray(reportsData) ? reportsData : []);
+  };
+
+  const fetchAdminData = async () => {
+    const [overviewRes, inputsRes, reportsRes] = await Promise.all([
+      fetch(buildApiUrl('/api/admin/overview'), { headers: { Authorization: `Bearer ${token}` } }),
+      fetch(buildApiUrl('/api/admin/inputs'), { headers: { Authorization: `Bearer ${token}` } }),
+      fetch(buildApiUrl('/api/admin/reports'), { headers: { Authorization: `Bearer ${token}` } }),
+    ]);
+
+    const [overviewData, inputsData, reportsData] = await Promise.all([
+      overviewRes.json(),
+      inputsRes.json(),
+      reportsRes.json(),
+    ]);
+
+    if (!overviewRes.ok) throw new Error(overviewData.error || 'Failed to load admin overview');
+    if (!inputsRes.ok) throw new Error(inputsData.error || 'Failed to load admin inputs');
+    if (!reportsRes.ok) throw new Error(reportsData.error || 'Failed to load admin reports');
+
+    return { overviewData, inputsData, reportsData };
+  };
 
   useEffect(() => {
     let mounted = true;
@@ -34,26 +71,10 @@ function AdminDashboard({ token, onLogout }) {
       setError('');
 
       try {
-        const [overviewRes, inputsRes, reportsRes] = await Promise.all([
-          fetch(buildApiUrl('/api/admin/overview'), { headers: { Authorization: `Bearer ${token}` } }),
-          fetch(buildApiUrl('/api/admin/inputs'), { headers: { Authorization: `Bearer ${token}` } }),
-          fetch(buildApiUrl('/api/admin/reports'), { headers: { Authorization: `Bearer ${token}` } }),
-        ]);
-
-        const [overviewData, inputsData, reportsData] = await Promise.all([
-          overviewRes.json(),
-          inputsRes.json(),
-          reportsRes.json(),
-        ]);
-
-        if (!overviewRes.ok) throw new Error(overviewData.error || 'Failed to load admin overview');
-        if (!inputsRes.ok) throw new Error(inputsData.error || 'Failed to load admin inputs');
-        if (!reportsRes.ok) throw new Error(reportsData.error || 'Failed to load admin reports');
+        const { overviewData, inputsData, reportsData } = await fetchAdminData();
 
         if (mounted) {
-          setOverview(overviewData);
-          setInputs(Array.isArray(inputsData) ? inputsData : []);
-          setReports(Array.isArray(reportsData) ? reportsData : []);
+          applyAdminData(overviewData, inputsData, reportsData);
         }
       } catch (loadError) {
         if (mounted) {
@@ -71,6 +92,44 @@ function AdminDashboard({ token, onLogout }) {
       mounted = false;
     };
   }, [token]);
+
+  const handleCreateUser = async (event) => {
+    event.preventDefault();
+    setCreateUserLoading(true);
+    setCreateUserError('');
+    setCreateUserSuccess('');
+
+    try {
+      const response = await fetch(buildApiUrl('/api/admin/users'), {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          email: createUserForm.email.trim(),
+          username: createUserForm.username.trim(),
+          password: createUserForm.password,
+          role: createUserForm.role,
+        }),
+      });
+
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to create user');
+      }
+
+      setCreateUserSuccess(`Created ${data.user?.role || 'user'} account for ${data.user?.email || 'new user'}.`);
+      setCreateUserForm(emptyCreateUserForm);
+
+      const { overviewData, inputsData, reportsData } = await fetchAdminData();
+      applyAdminData(overviewData, inputsData, reportsData);
+    } catch (createError) {
+      setCreateUserError(createError.message || 'Unable to create user.');
+    } finally {
+      setCreateUserLoading(false);
+    }
+  };
 
   const stats = overview?.stats || {};
   const contentMix = overview?.content_mix || [];
@@ -287,6 +346,82 @@ function AdminDashboard({ token, onLogout }) {
           </div>
 
           <div className="right-section">
+            <section className="card dashboard-card sidebar-card admin-create-card">
+              <div className="panel-header">
+                <div>
+                  <p className="eyebrow">Create User</p>
+                  <h3>Add a user or another admin</h3>
+                </div>
+              </div>
+
+              <form className="admin-user-form" onSubmit={handleCreateUser}>
+                <div className="admin-form-grid">
+                  <label className="field">
+                    <span>Email</span>
+                    <input
+                      type="email"
+                      className="admin-input"
+                      value={createUserForm.email}
+                      onChange={(event) => setCreateUserForm((current) => ({ ...current, email: event.target.value }))}
+                      placeholder="user@example.com"
+                      required
+                    />
+                  </label>
+
+                  <label className="field">
+                    <span>Username</span>
+                    <input
+                      type="text"
+                      className="admin-input"
+                      value={createUserForm.username}
+                      onChange={(event) => setCreateUserForm((current) => ({ ...current, username: event.target.value }))}
+                      placeholder="username"
+                      required
+                    />
+                  </label>
+
+                  <label className="field">
+                    <span>Password</span>
+                    <input
+                      type="password"
+                      className="admin-input"
+                      value={createUserForm.password}
+                      onChange={(event) => setCreateUserForm((current) => ({ ...current, password: event.target.value }))}
+                      placeholder="Temporary password"
+                      required
+                    />
+                  </label>
+
+                  <label className="field">
+                    <span>Role</span>
+                    <select
+                      className="admin-input admin-select"
+                      value={createUserForm.role}
+                      onChange={(event) => setCreateUserForm((current) => ({ ...current, role: event.target.value }))}
+                    >
+                      <option value="user">User</option>
+                      <option value="admin">Admin</option>
+                    </select>
+                  </label>
+                </div>
+
+                {(createUserError || createUserSuccess) && (
+                  <p className={`admin-inline-feedback ${createUserError ? 'error' : 'success'}`}>
+                    {createUserError || createUserSuccess}
+                  </p>
+                )}
+
+                <div className="action-row admin-form-actions">
+                  <button type="submit" className="secondary-button" disabled={createUserLoading}>
+                    {createUserLoading ? 'Creating user...' : 'Create Account'}
+                  </button>
+                  <p className="action-note">
+                    New accounts are created immediately in the live database and appear in the recent users list.
+                  </p>
+                </div>
+              </form>
+            </section>
+
             <section className="card dashboard-card sidebar-card admin-table-card">
               <div className="panel-header">
                 <div>
