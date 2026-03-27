@@ -129,7 +129,7 @@ function getNewsRisk(item) {
   return { label: 'Low', tone: 'low' };
 }
 
-function Upload({ token, onLogout }) {
+function Upload({ token, user, onLogout }) {
   const [contentType, setContentType] = useState('text');
   const [content, setContent] = useState('');
   const [file, setFile] = useState(null);
@@ -416,6 +416,9 @@ function Upload({ token, onLogout }) {
             </div>
           </div>
           <div className="topbar-actions">
+            {user?.role === 'admin' && (
+              <button className="ghost-button" onClick={() => navigate('/admin')}>Admin Dashboard</button>
+            )}
             <button className="ghost-button" onClick={onLogout}>Logout</button>
           </div>
         </header>

@@ -55,10 +55,41 @@ TOI_STYLE_HTML = """
 </html>
 """
 
+TOI_WITH_AUTHOR_AND_CALCULATORS_HTML = """
+<html>
+  <head>
+    <title>Govt cuts excise duty to Rs 3 a litre on petrol, to nil on diesel amid Middle East tensions - TOI</title>
+    <meta name="description" content="Government has revised its fuel duty structure, lowering the special additional excise duty on petrol to Rs 3 per litre while removing it entirely on diesel amid Middle East tensions." />
+  </head>
+  <body>
+    <main>
+      <article>
+        <p>Government has revised its fuel duty structure, lowering the special additional excise duty on petrol to Rs 3 per litre while removing it entirely on diesel amid Middle East tensions.</p>
+        <p>According to a government order, the additional excise duty on petrol was cut to Rs 3 per litre from Rs 13 per litre earlier, while diesel duty was cut to zero from Rs 10 per litre.</p>
+        <p>Crude prices cooled after the United States said negotiations with Iran were going very well, though benchmark oil prices remained well above pre-conflict levels.</p>
+        <p>Nayara Energy also raised petrol and diesel prices after input costs climbed because of the Middle East situation.</p>
+      </article>
+      <section>
+        <p>About the Author TOI Business Desk</p>
+        <p>Our dedicated team of seasoned journalists is committed to delivering business news from around the world to readers of The Times of India.</p>
+      </section>
+      <section>
+        <p>Financial calculators</p>
+        <p>EMI Calculator Determine the monthly installment amount for a loan Calculate Now</p>
+        <p>SIP Calculator Estimate the returns on investments made through SIPs Calculate Now</p>
+        <p>PPF Calculator Find out maturity amount and interest earned on PPF Calculate Now</p>
+        <p>NPS Calculator Estimate the pension amount and corpus accumulated under NPS Calculate Now</p>
+      </section>
+    </main>
+  </body>
+</html>
+"""
+
 
 class MockResponse:
     def __init__(self, html):
         self.content = html.encode("utf-8")
+        self.status_code = 200
 
     def raise_for_status(self):
         return None
@@ -105,6 +136,59 @@ class UrlSummaryCleanupTests(unittest.TestCase):
         self.assertIn("The Indian Navy deployed five warships", summary)
         self.assertNotIn("TOI Breaking News", summary)
         self.assertNotIn("Subscribe", summary)
+
+    def test_summarize_text_handles_url_article_block_without_clean_punctuation(self):
+        text = (
+            "TOI Breaking News Latest News India News World News Sign In Subscribe "
+            "The Indian Navy deployed five warships to support merchant vessels leaving the Strait of Hormuz "
+            "Officials said the mission is focused on safe passage and rapid response for civilian cargo traffic "
+            "The operation began after repeated warnings about risks to commercial traffic in the area"
+        )
+
+        summary = summarize_text(text)
+
+        self.assertIn("The Indian Navy deployed five warships", summary)
+        self.assertIn("safe passage", summary)
+        self.assertNotIn("TOI Breaking News", summary)
+        self.assertNotIn("Subscribe", summary)
+
+    @patch("ml_pipeline.url_module.requests.get")
+    def test_fetch_and_extract_from_url_adds_sentence_boundaries_for_plain_paragraphs(self, mock_get):
+        html = """
+        <html>
+          <body>
+            <article>
+              <p>The Indian Navy deployed five warships to support merchant vessels leaving the Strait of Hormuz after regional tensions disrupted shipping routes.</p>
+              <p>Officials said the escort mission is focused on safe passage, maritime awareness, and rapid response for civilian cargo traffic crossing the corridor.</p>
+              <p>The operation aims to reduce delays for outbound ships in the region and reassure commercial operators worried about further escalation at sea.</p>
+              <p>Government teams are coordinating live advisories and route guidance for vessels that need safe transit support.</p>
+            </article>
+          </body>
+        </html>
+        """
+        mock_get.return_value = MockResponse(html)
+
+        result = fetch_and_extract_from_url("example.com/sample-story")
+
+        self.assertEqual(result["source_type"], "webpage")
+        self.assertIn("Strait of Hormuz.", result["text"])
+        self.assertIn("Officials said the escort mission", result["text"])
+
+    @patch("ml_pipeline.url_module.requests.get")
+    def test_fetch_and_extract_from_url_ignores_author_and_calculator_sections(self, mock_get):
+        mock_get.return_value = MockResponse(TOI_WITH_AUTHOR_AND_CALCULATORS_HTML)
+
+        result = fetch_and_extract_from_url("timesofindia.indiatimes.com/business/sample-story")
+        summary = summarize_text(result["text"])
+
+        self.assertEqual(result["source_type"], "webpage")
+        self.assertIn("fuel duty structure", result["text"])
+        self.assertIn("petrol was cut to Rs 3 per litre", result["text"])
+        self.assertNotIn("EMI Calculator", result["text"])
+        self.assertNotIn("Our dedicated team of seasoned journalists", result["text"])
+        self.assertIn("fuel duty structure", summary)
+        self.assertNotIn("monthly installment amount", summary)
+        self.assertNotIn("Estimate the returns on investments", summary)
 
     def test_summarize_text_avoids_unrelated_late_teaser(self):
         text = (

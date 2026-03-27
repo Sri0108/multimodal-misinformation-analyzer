@@ -80,7 +80,56 @@ npm start
 
 Frontend runs on `http://localhost:3000`
 
+## Deploying to Render
+
+This repo now includes a `Dockerfile` and `render.yaml` so you can deploy it directly from GitHub on Render as a single web service.
+
+### What changed for Render
+
+- React is built during Docker image creation and served by Flask in production
+- The API uses same-origin requests in production, so frontend and backend work behind one Render URL
+- The backend now supports:
+  - `sqlite:///...` by default for simple deployments
+  - `postgres://...` or `postgresql://...` via `DATABASE_URL`
+  - `mysql://...` via automatic conversion to `mysql+pymysql://...`
+- A health endpoint is available at `/api/health`
+
+### Deploy steps
+
+1. Push this repository to GitHub
+2. In Render, create a new Blueprint or Web Service from the GitHub repo
+3. If using Blueprint, Render will detect `render.yaml`
+4. Deploy the service
+
+### Free-tier deployment note
+
+The included `render.yaml` is configured for a free web service and a free Render Postgres database so you can deploy without paid resources for demo/testing use. During Blueprint creation, Render will prompt you to enter:
+
+- `DEFAULT_ADMIN_EMAIL`
+- `DEFAULT_ADMIN_USERNAME`
+- `DEFAULT_ADMIN_PASSWORD`
+
+Keep in mind:
+
+- Free web services can spin down when idle, so the first request after inactivity may be slow
+- Free Postgres is suitable for hobby/demo use but is not the same as a production-grade paid database plan
+
+### Recommended environment variables
+
+- `SECRET_KEY`: generated automatically by `render.yaml`
+- `DATABASE_URL`: optional, but recommended for persistent data
+- `DEFAULT_ADMIN_EMAIL`
+- `DEFAULT_ADMIN_USERNAME`
+- `DEFAULT_ADMIN_PASSWORD`
+- `SEED_DEFAULT_ADMIN=true` only if you intentionally want Render to create an admin account on boot
+
+### Important note about persistence
+
+If you do not set `DATABASE_URL`, the app uses SQLite inside the container so deployment is easy, but that data is not durable across fresh Render deploys/restarts. For production use, connect a managed database and set `DATABASE_URL`.
+
 ## Default Admin Credentials
+
+If `SEED_DEFAULT_ADMIN=true`, the app seeds this admin user on startup:
 
 - Email: admin@example.com
 - Password: admin123

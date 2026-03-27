@@ -33,6 +33,9 @@ function Result({ token }) {
   }, [location.state]);
 
   const result = analysis?.result;
+  const verificationLabel = result?.verification_mode === 'trusted_source_first'
+    ? 'Trusted source first'
+    : 'Classifier fallback';
   const explanationItems = Array.isArray(result?.explanation)
     ? result.explanation
     : result?.explanation
@@ -90,7 +93,9 @@ function Result({ token }) {
 
   if (!analysis || !result) {
     return (
-      <div className="app-shell result-shell">
+      <div className="app-shell workspace-pro result-shell">
+        <div className="ambient ambient-one" />
+        <div className="ambient ambient-two" />
         <section className="panel empty-panel">
           <h2>No analysis is available yet.</h2>
           <p>Run a fresh detection to see fake-or-not results, trusted source URLs, graphs, summary, and optional report generation.</p>
@@ -192,161 +197,205 @@ function Result({ token }) {
   };
 
   return (
-    <div className="app-shell result-shell">
+    <div className="app-shell workspace-pro result-shell">
       <div className="ambient ambient-one" />
       <div className="ambient ambient-two" />
 
-      <header className="topbar">
-        <div>
-          <p className="eyebrow">Detection Result</p>
-          <h1>Trusted-source evidence first, classification fallback second.</h1>
-        </div>
-        <button className="ghost-button" onClick={() => navigate('/upload')}>Analyze Another Item</button>
-      </header>
-
-      <section className="result-hero">
-        <div className={`verdict-card ${verdictTone}`}>
-          <p className="eyebrow">Primary Verdict</p>
-          <h2>{result.prediction}</h2>
-          <p>
-            Verification mode: <strong>{result.verification_mode === 'trusted_source_first' ? 'Trusted source first' : 'Classifier fallback'}</strong>
-          </p>
-        </div>
-
-        <div className="metrics-strip">
-          <div className="metric-card accent-warning">
-            <span className="metric-value">{Math.round((result.confidence || 0) * 100)}%</span>
-            <span className="metric-label">Confidence</span>
-          </div>
-          <div className="metric-card accent-cool">
-            <span className="metric-value">{result.source_evidence_count || 0}</span>
-            <span className="metric-label">Trusted URLs found</span>
-          </div>
-          <div className="metric-card accent-success">
-            <span className="metric-value">{result.claim_category || 'general'}</span>
-            <span className="metric-label">Claim type</span>
-          </div>
-        </div>
-      </section>
-
-      <main className="result-grid">
-        <section className="panel">
-          <div className="panel-header">
+      <div className="page-container">
+        <header className="topbar">
+          <div className="brand-lockup">
+            <span className="brand-mark">MM</span>
             <div>
-              <p className="eyebrow">Why the system reached this conclusion</p>
-              <h3>Detailed explanation</h3>
+              <p className="eyebrow">Result Workspace</p>
+              <h1>multimodal misinformation analyzer</h1>
             </div>
           </div>
+          <div className="topbar-actions">
+            <span className="status-pill result-status-pill">{result.prediction}</span>
+            <button className="ghost-button" onClick={() => navigate('/upload')}>Analyze Another Item</button>
+          </div>
+        </header>
 
-          <div className="explanation-list">
-            {explanationItems.map((item) => (
-              <div className="explanation-item" key={item}>
-                <span className="bullet-dot" />
-                <p>{item}</p>
-              </div>
-            ))}
+        <section className="hero-panel result-hero-panel">
+          <div className="hero-copy">
+            <p className="eyebrow">Detection Result</p>
+            <h2>{result.prediction}</h2>
+            <p className="hero-lead">
+              Verification mode: {verificationLabel}. Confidence is {Math.round((result.confidence || 0) * 100)}%.
+              Review the reasoning, trusted sources, extracted context, and optional summary/report from one workspace.
+            </p>
           </div>
 
-          <div className="action-row">
-            <button className="secondary-button" onClick={handleSummary} disabled={summaryLoading}>
-              {summaryLoading ? 'Generating summary...' : 'Generate Summary'}
-            </button>
-            <button className="primary-button" onClick={handleGenerateReport} disabled={reportLoading}>
-              {reportLoading ? 'Preparing PDF...' : 'Generate Detailed PDF Report'}
-            </button>
-          </div>
-
-          {summary && (
-            <div className="summary-card">
-              <p className="eyebrow">Summary</p>
-              <p>{summary}</p>
+          <div className="hero-metrics">
+            <div className="metric-card accent-warm">
+              <span className="metric-value">{Math.round((result.confidence || 0) * 100)}%</span>
+              <span className="metric-label">Confidence</span>
+              <small>Model confidence after verification fusion.</small>
             </div>
-          )}
-        </section>
-
-        <section className="panel">
-          <div className="panel-header">
-            <div>
-              <p className="eyebrow">Proof and trusted URLs</p>
-              <h3>Source-backed reasoning</h3>
+            <div className="metric-card accent-cool">
+              <span className="metric-value">{result.source_evidence_count || 0}</span>
+              <span className="metric-label">Trusted URLs Found</span>
+              <small>Supporting source links identified for this input.</small>
             </div>
-          </div>
-
-          <div className="explanation-list">
-            {reasonItems.map((item) => (
-              <div className="explanation-item" key={item}>
-                <span className="bullet-dot" />
-                <p>{item}</p>
-              </div>
-            ))}
-          </div>
-
-          <div className="trusted-sources">
-            {(result.trusted_sources || []).map((item) => (
-              <a
-                key={item.url}
-                className="trusted-source-card"
-                href={item.url}
-                target="_blank"
-                rel="noreferrer"
-              >
-                <span className="snapshot-label">{item.source}</span>
-                <strong>{item.title}</strong>
-                <p>{item.snippet || item.reason}</p>
-              </a>
-            ))}
+            <div className="metric-card accent-danger">
+              <span className="metric-value">{result.claim_category || 'general'}</span>
+              <span className="metric-label">Claim Type</span>
+              <small>Claim category inferred from the extracted content.</small>
+            </div>
           </div>
         </section>
 
-        <section className="panel">
-          <div className="panel-header">
-            <div>
-              <p className="eyebrow">Insights Graphs</p>
-              <h3>Evidence balance for this claim</h3>
-            </div>
-          </div>
-
-          <div className="graph-stack">
-            {graphItems.map((item) => (
-              <div key={item.label} className="graph-card">
-                <div className="graph-meta">
-                  <span>{item.label}</span>
-                  <strong>{item.value}%</strong>
+        <div className="main-grid result-main-grid">
+          <div className="left-section">
+            <section className="card dashboard-card primary-panel result-primary-card">
+              <div className="panel-header">
+                <div>
+                  <p className="eyebrow">Why The System Reached This Conclusion</p>
+                  <h3>Detailed explanation</h3>
                 </div>
-                <div className="graph-track">
-                  <div className={`graph-fill ${item.tone}`} style={{ width: `${Math.max(item.value, 4)}%` }} />
+                <span className="panel-tag">{verificationLabel}</span>
+              </div>
+
+              <div className="explanation-list">
+                {explanationItems.map((item) => (
+                  <div className="explanation-item" key={item}>
+                    <span className="bullet-dot" />
+                    <p>{item}</p>
+                  </div>
+                ))}
+              </div>
+
+              <div className="action-row result-actions">
+                <button className="secondary-button" onClick={handleSummary} disabled={summaryLoading}>
+                  {summaryLoading ? 'Generating summary...' : 'Generate Summary'}
+                </button>
+                <button className="primary-button" onClick={handleGenerateReport} disabled={reportLoading}>
+                  {reportLoading ? 'Preparing PDF...' : 'Generate Detailed PDF Report'}
+                </button>
+              </div>
+
+              {summary && (
+                <div className="summary-card result-summary-block">
+                  <p className="eyebrow">Summary</p>
+                  <p>{summary}</p>
+                </div>
+              )}
+            </section>
+
+            <div className="bottom-section result-bottom-section">
+              <article className="card dashboard-card info-card result-graph-card">
+                <div className="info-card-header">
+                  <div className="info-icon-badge workflow-badge" aria-hidden="true">GR</div>
+                  <div>
+                    <p className="eyebrow">Insights Graphs</p>
+                    <h3>Evidence balance for this claim</h3>
+                  </div>
+                </div>
+
+                <div className="graph-stack">
+                  {graphItems.map((item) => (
+                    <div key={item.label} className="graph-card">
+                      <div className="graph-meta">
+                        <span>{item.label}</span>
+                        <strong>{item.value}%</strong>
+                      </div>
+                      <div className="graph-track">
+                        <div className={`graph-fill ${item.tone}`} style={{ width: `${Math.max(item.value, 4)}%` }} />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="info-highlight">
+                  Confidence, score balance, and source coverage are shown together so you can see whether the final label came from direct evidence or fallback analysis.
+                </div>
+              </article>
+
+              <article className="card dashboard-card info-card result-snapshot-card">
+                <div className="info-card-header">
+                  <div className="info-icon-badge" aria-hidden="true">SN</div>
+                  <div>
+                    <p className="eyebrow">Source Snapshot</p>
+                    <h3>Context from the analyzed input</h3>
+                  </div>
+                </div>
+
+                <div className="snapshot-stack">
+                  <div className="snapshot-card">
+                    <span className="snapshot-label">Source</span>
+                    <p>{analysis.sourceLabel}</p>
+                  </div>
+
+                  {result.extracted_text && (
+                    <div className="snapshot-card">
+                      <span className="snapshot-label">Extracted text</span>
+                      <p>{result.extracted_text}</p>
+                    </div>
+                  )}
+                </div>
+              </article>
+            </div>
+          </div>
+
+          <div className="right-section">
+            <section className="card dashboard-card sidebar-card">
+              <div className="panel-header">
+                <div>
+                  <p className="eyebrow">Proof And Trusted URLs</p>
+                  <h3>Source-backed reasoning</h3>
                 </div>
               </div>
-            ))}
-          </div>
 
-          <div className="tips-card">
-            <h4>Recommended next checks</h4>
-            <p>Open the trusted URLs above, compare whether they directly support the claim, and note whether the app used source-first evidence or classifier fallback.</p>
-          </div>
-        </section>
+              <div className="explanation-list">
+                {reasonItems.map((item) => (
+                  <div className="explanation-item" key={item}>
+                    <span className="bullet-dot" />
+                    <p>{item}</p>
+                  </div>
+                ))}
+              </div>
 
-        <section className="panel">
-          <div className="panel-header">
-            <div>
-              <p className="eyebrow">Source Snapshot</p>
-              <h3>Context from the analyzed input</h3>
-            </div>
-          </div>
+              <div className="trusted-sources">
+                {(result.trusted_sources || []).map((item) => (
+                  <a
+                    key={item.url}
+                    className="trusted-source-card"
+                    href={item.url}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    <span className="snapshot-label">{item.source}</span>
+                    <strong>{item.title}</strong>
+                    <p>{item.snippet || item.reason}</p>
+                  </a>
+                ))}
+              </div>
+            </section>
 
-          <div className="snapshot-card">
-            <span className="snapshot-label">Source</span>
-            <p>{analysis.sourceLabel}</p>
-          </div>
+            <section className="card dashboard-card sidebar-card">
+              <div className="panel-header">
+                <div>
+                  <p className="eyebrow">Analyst Guidance</p>
+                  <h3>Recommended next checks</h3>
+                </div>
+              </div>
 
-          {result.extracted_text && (
-            <div className="snapshot-card">
-              <span className="snapshot-label">Extracted text</span>
-              <p>{result.extracted_text}</p>
-            </div>
-          )}
-        </section>
-      </main>
+              <ul className="workflow-steps">
+                <li>Open the trusted URLs and verify they directly support the exact claim.</li>
+                <li>Compare the verdict with confidence and source coverage before sharing or reporting.</li>
+                <li>Use the generated summary and PDF report when you need a quick handoff or record.</li>
+              </ul>
+
+              <div className="note-box">
+                <span className="note-title">Result Notes</span>
+                <p className="note-body">
+                  Source-first verdicts usually carry stronger evidence. Fallback classifier results should be reviewed more carefully when source coverage is limited.
+                </p>
+              </div>
+            </section>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

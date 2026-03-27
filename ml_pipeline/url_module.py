@@ -28,6 +28,35 @@ BOILERPLATE_TERMS = [
     "read more",
 ]
 
+LOW_SIGNAL_TERMS = BOILERPLATE_TERMS + [
+    "about the author",
+    "follow us on social media",
+    "financial calculators",
+    "emi calculator",
+    "sip calculator",
+    "ppf calculator",
+    "fd calculator",
+    "nps calculator",
+    "mutual fund calculator",
+    "calculate now",
+    "daily puzzles",
+    "hot picks",
+    "top trending",
+    "trending stories",
+    "end of article",
+    "go ad free now",
+]
+
+HARD_STOP_TERMS = {
+    "about the author",
+    "follow us on social media",
+    "end of article",
+    "financial calculators",
+    "daily puzzles",
+    "trending stories",
+    "hot picks",
+}
+
 
 def normalize_url(url):
     parsed = urlparse(url)
@@ -36,6 +65,49 @@ def normalize_url(url):
 
 def clean_text(text):
     return re.sub(r"\s+", " ", text or "").strip()
+
+
+def ensure_terminal_punctuation(text):
+    cleaned = clean_text(text)
+    if not cleaned:
+        return ""
+
+    if re.search(r'[.!?]["\')\]]?$', cleaned):
+        return cleaned
+
+    return f"{cleaned}."
+
+
+def join_text_blocks(blocks):
+    normalized = [ensure_terminal_punctuation(block) for block in blocks if clean_text(block)]
+    return " ".join(block for block in normalized if block)
+
+
+def is_low_signal_block(text):
+    lowered = clean_text(text).lower()
+    if not lowered:
+        return True
+
+    return any(term in lowered for term in LOW_SIGNAL_TERMS)
+
+
+def dedupe_blocks(blocks):
+    unique = []
+    seen = set()
+
+    for block in blocks:
+        normalized = clean_text(block)
+        if not normalized:
+            continue
+
+        key = normalized.lower()
+        if key in seen:
+            continue
+
+        seen.add(key)
+        unique.append(normalized)
+
+    return unique
 
 
 def trim_to_sentence_boundary(text, limit):
@@ -61,8 +133,7 @@ def is_valid_article(text):
         return False
 
     t = text.lower()
-
-    if any(term in t for term in BOILERPLATE_TERMS):
+    if any(term in t for term in ["emi calculator", "sip calculator", "calculate now"]):
         return False
 
     if len(text.split()) < MIN_WORDS:
@@ -73,15 +144,57 @@ def is_valid_article(text):
 
 def parse_html(content):
     soup = BeautifulSoup(content, "html.parser")
+    candidate_blocks = []
 
-    paragraphs = []
-    for p in soup.find_all("p"):
-        text = clean_text(p.get_text())
-        if len(text.split()) > 6:
-            if not any(term in text.lower() for term in BOILERPLATE_TERMS):
-                paragraphs.append(text)
+    headline = clean_text(soup.title.get_text()) if soup.title else ""
+    if headline and not is_low_signal_block(headline):
+        candidate_blocks.append(headline)
 
-    return " ".join(paragraphs)
+    for selector in [
+        {"name": "description"},
+        {"property": "og:description"},
+        {"name": "twitter:description"},
+    ]:
+        meta = soup.find("meta", attrs=selector)
+        description = clean_text(meta.get("content", "")) if meta else ""
+        if len(description.split()) >= 10 and not is_low_signal_block(description):
+            candidate_blocks.append(description)
+
+    scopes = [
+        tag for tag in soup.find_all(["article", "main", "section"])
+        if tag.find_all("p")
+    ]
+    if not scopes:
+        scopes = [soup]
+
+    best_paragraphs = []
+    best_word_count = 0
+
+    for scope in scopes:
+        paragraphs = []
+        for p in scope.find_all("p"):
+            text = clean_text(p.get_text(" ", strip=True))
+            if len(text.split()) <= 6:
+                continue
+
+            lowered = text.lower()
+            if any(marker in lowered for marker in HARD_STOP_TERMS):
+                if len(paragraphs) >= 2:
+                    break
+                continue
+
+            if is_low_signal_block(text):
+                continue
+
+            paragraphs.append(text)
+
+        word_count = sum(len(paragraph.split()) for paragraph in paragraphs)
+        if word_count > best_word_count:
+            best_word_count = word_count
+            best_paragraphs = paragraphs
+
+    candidate_blocks.extend(best_paragraphs)
+    return join_text_blocks(dedupe_blocks(candidate_blocks))
 
 
 # -----------------------------
@@ -143,11 +256,11 @@ def fetch_google(url):
         snippets = []
         for s in soup.select("div.VwiC3b, div.BNeawe"):
             txt = clean_text(s.get_text())
-            if len(txt.split()) > 6:
+            if len(txt.split()) > 6 and not is_low_signal_block(txt):
                 snippets.append(txt)
 
         if snippets:
-            return {"text": trim_to_sentence_boundary(" ".join(snippets), SNIPPET_LIMIT), "url": url}
+            return {"text": trim_to_sentence_boundary(join_text_blocks(snippets), SNIPPET_LIMIT), "url": url}
 
     except:
         return None

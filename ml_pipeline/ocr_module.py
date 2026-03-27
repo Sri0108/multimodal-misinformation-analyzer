@@ -342,7 +342,7 @@ def extract_text_from_image(image_path):
                 f"File={os.path.basename(image_path)}, Error={tesseract_error}"
             )
 
-        return f"Image processed: {os.path.basename(image_path)} ({img.size[0]}x{img.size[1]} pixels)"
+        return "No text found in image."
 
     except Exception as e:
         return f"Image error: {str(e)}"

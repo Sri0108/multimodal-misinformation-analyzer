@@ -69,7 +69,9 @@ def _clean_text(text):
 
 
 def _split_sentences(text):
-    normalized = re.sub(r"[\r\n]+", " ", text or "")
+    normalized = (text or "").replace("\r\n", "\n").replace("\r", "\n")
+    normalized = re.sub(r"\n{2,}", ". ", normalized)
+    normalized = re.sub(r"\n+", " ", normalized)
     normalized = re.sub(
         r"(?<=[a-z0-9]) (?=[A-Z][a-z]+ [A-Z][a-z]+(?:,|\s(?:is|has|was|will)\b))",
         ". ",
@@ -83,11 +85,17 @@ def _split_sentences(text):
 
 def _is_noise(sentence):
     lowered = sentence.lower()
-    if any(term in lowered for term in NOISE_TERMS):
+    noise_hits = sum(1 for term in NOISE_TERMS if term in lowered)
+    token_count = len(_sentence_tokens(sentence))
+    important_hits = sum(1 for term in IMPORTANT_TERMS if term in lowered)
+
+    if noise_hits and important_hits == 0:
+        if token_count < 7 or (noise_hits >= 2 and token_count < 12):
+            return True
+
+    if sentence.count("|") >= 2 and token_count < 12:
         return True
-    if sentence.count("|") >= 2:
-        return True
-    if len(sentence.split()) > 18 and not re.search(r"[.!?]", sentence):
+    if len(sentence.split()) > 18 and not re.search(r"[.!?]", sentence) and token_count < 12:
         return True
     return False
 
@@ -162,6 +170,17 @@ def _fallback_summary(sentences, max_sentences):
         return "\n\n".join(
             " ".join(selected[index:index + 2]) for index in range(0, len(selected), 2)
         )
+
+    compact = []
+    for sentence in sentences:
+        if len(sentence.split()) < 5:
+            continue
+        compact.append(sentence)
+        if len(compact) >= max(1, min(max_sentences, 2)):
+            break
+
+    if compact:
+        return "\n\n".join(compact)
 
     return "Could not generate a meaningful summary."
 
@@ -468,7 +487,8 @@ def _model_summary(sentences, max_sentences=None):
 
 
 def summarize_text(text, max_sentences=None, prefer_model=True):
-    clean = _clean_text(text)
+    raw_text = text or ""
+    clean = _clean_text(raw_text)
     if not clean:
         return "No content available to summarize."
 
@@ -476,7 +496,8 @@ def summarize_text(text, max_sentences=None, prefer_model=True):
     if headline_style_summary:
         return headline_style_summary
 
-    sentences = _split_sentences(clean)
+    sentences = _split_sentences(raw_text)
+    sentences = [_clean_text(sentence) for sentence in sentences if _clean_text(sentence)]
     sentences = [sentence for sentence in sentences if not _is_noise(sentence)]
 
     if not sentences:

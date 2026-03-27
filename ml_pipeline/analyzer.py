@@ -124,6 +124,20 @@ def analyze_content(content_type, content, file_path):
                 text = extract_text_from_image(file_path)
                 result["manipulation_score"] = detect_manipulation(file_path)
 
+                if text == "No text found in image.":
+                    result["prediction"] = "No Text Detected"
+                    result["confidence"] = 0.0
+                    result["explanation"] = [text]
+                    result["reason_summary"] = [text]
+                    return result
+
+                if text.startswith("Image analysis (Tesseract not available):") or text.startswith("Image error:"):
+                    result["prediction"] = "Error"
+                    result["confidence"] = 0.0
+                    result["explanation"] = [text]
+                    result["reason_summary"] = [text]
+                    return result
+
         elif content_type == "document":
             if file_path and os.path.exists(file_path):
                 text = extract_text_from_document(file_path)

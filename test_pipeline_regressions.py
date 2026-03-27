@@ -2,6 +2,7 @@ import os
 import unittest
 from unittest.mock import patch
 
+from ml_pipeline.analyzer import analyze_content
 from ml_pipeline.report_generator import generate_pdf_report
 from ml_pipeline.source_verifier import verify_claim_with_sources
 
@@ -52,6 +53,22 @@ class PipelineRegressionTests(unittest.TestCase):
             verification["trusted_sources"][0]["source"],
             "timesofindia.indiatimes.com",
         )
+
+    @patch("ml_pipeline.analyzer.detect_manipulation", return_value=0.08)
+    @patch("ml_pipeline.analyzer.extract_text_from_image", return_value="No text found in image.")
+    @patch("ml_pipeline.analyzer.os.path.exists", return_value=True)
+    def test_analyze_content_reports_when_image_has_no_text(
+        self,
+        _mock_exists,
+        _mock_extract,
+        _mock_detect,
+    ):
+        result = analyze_content("image", "", "uploads/blank-image.png")
+
+        self.assertEqual(result["prediction"], "No Text Detected")
+        self.assertEqual(result["confidence"], 0.0)
+        self.assertEqual(result["explanation"], ["No text found in image."])
+        self.assertEqual(result["reason_summary"], ["No text found in image."])
 
 
 if __name__ == "__main__":

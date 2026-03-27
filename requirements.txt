@@ -3,8 +3,10 @@ Flask-CORS
 Flask-SQLAlchemy
 Flask-JWT-Extended
 Werkzeug
+gunicorn
 PyMySQL
 cryptography
+psycopg[binary]
 scikit-learn
 numpy
 Pillow
@@ -16,6 +18,5 @@ beautifulsoup4
 python-docx
 PyPDF2
 newspaper3k
-transformers
-torch
-sentencepiece
+lxml_html_clean
+python-dotenv

@@ -35,6 +35,7 @@ function getStoredUser() {
 function App() {
   const [token, setToken] = useState(getStoredToken);
   const [user, setUser] = useState(getStoredUser);
+  const authenticatedHome = user?.role === 'admin' ? '/admin' : '/upload';
 
   const handleLogin = (token, user) => {
     if (!token || token === 'undefined' || token === 'null') {
@@ -63,11 +64,27 @@ function App() {
   return (
     <BrowserRouter>
       <Routes>
-        <Route path="/login" element={token ? <Navigate to="/upload" /> : <Login onLogin={handleLogin} />} />
-        <Route path="/upload" element={token ? <Upload token={token} onLogout={handleLogout} /> : <Navigate to="/login" />} />
+        <Route
+          path="/login"
+          element={token ? <Navigate to={authenticatedHome} /> : <Login onLogin={handleLogin} mode="user" />}
+        />
+        <Route
+          path="/admin/login"
+          element={token ? <Navigate to={authenticatedHome} /> : <Login onLogin={handleLogin} mode="admin" />}
+        />
+        <Route path="/upload" element={token ? <Upload token={token} user={user} onLogout={handleLogout} /> : <Navigate to="/login" />} />
         <Route path="/result" element={token ? <Result token={token} /> : <Navigate to="/login" />} />
-        <Route path="/admin" element={token && user?.role === 'admin' ? <AdminDashboard token={token} onLogout={handleLogout} /> : <Navigate to="/login" />} />
-        <Route path="/" element={<Navigate to="/login" />} />
+        <Route
+          path="/admin"
+          element={
+            token
+              ? user?.role === 'admin'
+                ? <AdminDashboard token={token} onLogout={handleLogout} />
+                : <Navigate to="/upload" />
+              : <Navigate to="/admin/login" />
+          }
+        />
+        <Route path="/" element={<Navigate to={token ? authenticatedHome : '/login'} />} />
       </Routes>
     </BrowserRouter>
   );
