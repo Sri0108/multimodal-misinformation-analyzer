@@ -1,0 +1,15 @@
+.git
+.gitignore
+frontend/node_modules
+frontend/build
+__pycache__
+backend/__pycache__
+ml_pipeline/__pycache__
+*.pyc
+*.pyo
+*.pyd
+.env
+env
+uploads
+reports
+app.db

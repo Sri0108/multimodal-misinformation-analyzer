@@ -1,0 +1,8 @@
+# Optional advanced NLP stack
+# Install this after the base requirements if you want the enhanced
+# spaCy / NLTK / BERT / TensorFlow-assisted signals in ml_pipeline/nlp_module.py.
+
+spacy
+nltk
+transformers
+tensorflow-cpu
