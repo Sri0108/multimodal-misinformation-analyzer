@@ -311,6 +311,40 @@ def _fetch_ytdlp_subtitles(url):
     raise ValueError("yt-dlp could not retrieve usable subtitle text for this video.")
 
 
+def _fetch_ytdlp_info(url):
+    if yt_dlp is None:
+        raise ValueError("yt-dlp is not installed")
+
+    options = {
+        "skip_download": True,
+        "quiet": True,
+        "no_warnings": True,
+        "noplaylist": True,
+    }
+
+    with yt_dlp.YoutubeDL(options) as downloader:
+        return downloader.extract_info(url, download=False)
+
+
+def _clean_youtube_description(description):
+    cleaned = description or ""
+    cleaned = re.sub(r"https?://\S+", " ", cleaned)
+    cleaned = re.sub(r"\bwww\.\S+", " ", cleaned)
+    cleaned = re.sub(r"[#@]\w+", " ", cleaned)
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+    return cleaned
+
+
+def _fetch_ytdlp_description_metadata(url):
+    info = _fetch_ytdlp_info(url)
+    description = _clean_youtube_description(info.get("description", ""))
+    return {
+        "title": clean_text(info.get("title", "")),
+        "author_name": clean_text(info.get("uploader", "") or info.get("channel", "")),
+        "description": description,
+    }
+
+
 def _fetch_transcript_object_text(transcript, mode):
     transcript_chunks = transcript.fetch()
     return _transcript_chunks_to_text(transcript_chunks), mode, getattr(transcript, "language_code", "")
@@ -536,6 +570,25 @@ def extract_youtube_content(url):
     except Exception as error:
         metadata_error = str(error)
 
+    rich_metadata = {}
+    rich_metadata_error = None
+    if yt_dlp is not None:
+        try:
+            rich_metadata = _fetch_ytdlp_description_metadata(normalized_url)
+        except Exception as error:
+            rich_metadata_error = clean_text(str(error))
+
+    if not metadata.get("title") and rich_metadata.get("title"):
+        metadata["title"] = rich_metadata.get("title", "")
+    if not metadata.get("author_name") and rich_metadata.get("author_name"):
+        metadata["author_name"] = rich_metadata.get("author_name", "")
+
+    description_text = ""
+    if not transcript_text:
+        candidate_description = clean_text(rich_metadata.get("description", ""))
+        if len(candidate_description.split()) >= 18:
+            description_text = candidate_description
+
     content_blocks = []
     if metadata.get("title"):
         content_blocks.append(metadata["title"])
@@ -543,23 +596,31 @@ def extract_youtube_content(url):
         content_blocks.append(f"Channel: {metadata['author_name']}")
     if transcript_text:
         content_blocks.append(transcript_text)
+    elif description_text:
+        content_blocks.append(description_text)
 
     combined_text = clean_text(" ".join(content_blocks))
     if not combined_text:
-        error_bits = [bit for bit in [transcript_error, metadata_error] if bit]
+        error_bits = [bit for bit in [transcript_error, metadata_error, rich_metadata_error] if bit]
         message = error_bits[0] if error_bits else "Unable to extract transcript or metadata from this YouTube URL."
         raise ValueError(message)
 
     source_type = "youtube_transcript" if transcript_text else "youtube_metadata"
     source_note = ""
     if source_type == "youtube_metadata":
-        source_note = build_youtube_summary_unavailable_message(
-            {
-                "title": metadata.get("title", ""),
-                "transcript_error": transcript_error or "",
-                "fallback_error": fallback_error or "",
-            }
-        )
+        if description_text:
+            source_note = (
+                "A usable transcript was not available, so the analysis used the video's public description "
+                "as a fallback source."
+            )
+        else:
+            source_note = build_youtube_summary_unavailable_message(
+                {
+                    "title": metadata.get("title", ""),
+                    "transcript_error": transcript_error or "",
+                    "fallback_error": fallback_error or "",
+                }
+            )
     elif transcript_mode == "translated_to_english":
         source_note = (
             f"An English transcript was unavailable, so the analysis used an auto-translated English transcript "
@@ -584,11 +645,12 @@ def extract_youtube_content(url):
                 "title": metadata.get("title", ""),
                 "author_name": metadata.get("author_name", ""),
             }
-        ),
+        ) if transcript_text else description_text,
         "source_type": source_type,
         "source_note": source_note,
         "transcript_mode": transcript_mode,
         "transcript_language": transcript_language,
+        "metadata_basis": "description" if description_text and not transcript_text else "",
         "transcript_error": transcript_error or "",
         "subtitle_error": subtitle_error or "",
         "fallback_error": fallback_error or "",

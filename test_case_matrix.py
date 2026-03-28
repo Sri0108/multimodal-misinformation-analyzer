@@ -277,6 +277,42 @@ class BackendUnitTests(unittest.TestCase):
         self.assertIn("Render video", text)
         self.assertIn("Recovered subtitle text from yt-dlp.", text)
 
+    @patch("ml_pipeline.youtube_module._fetch_oembed_metadata", return_value={"title": "Documentary", "author_name": "DW"})
+    @patch(
+        "ml_pipeline.youtube_module._fetch_ytdlp_description_metadata",
+        return_value={
+            "title": "Documentary",
+            "author_name": "DW Documentary",
+            "description": (
+                "This documentary examines how fake news, propaganda, and conspiracy theories spread online "
+                "and how journalists, researchers, and fact-checkers respond to disinformation campaigns."
+            ),
+        },
+    )
+    @patch("ml_pipeline.youtube_module.yt_dlp", new=object())
+    @patch(
+        "ml_pipeline.youtube_module._fetch_ytdlp_subtitles",
+        side_effect=ValueError("yt-dlp could not retrieve usable subtitle text for this video."),
+    )
+    @patch(
+        "ml_pipeline.youtube_module._fetch_transcript",
+        side_effect=RequestBlocked("abc123xyz01"),
+    )
+    def test_ut_17_extract_youtube_content_uses_description_fallback_when_transcripts_are_unavailable(
+        self,
+        _mock_transcript,
+        _mock_ytdlp_subtitles,
+        _mock_description,
+        _mock_metadata,
+    ):
+        from ml_pipeline.youtube_module import extract_youtube_content
+
+        result = extract_youtube_content("https://www.youtube.com/watch?v=abc123xyz01")
+
+        self.assertEqual(result["source_type"], "youtube_metadata")
+        self.assertEqual(result["metadata_basis"], "description")
+        self.assertIn("fake news, propaganda, and conspiracy theories", result["summary_text"].lower())
+
 
 class SystemFlowTests(unittest.TestCase):
     @classmethod
@@ -552,6 +588,49 @@ class SystemFlowTests(unittest.TestCase):
         self.assertIn('Summary unavailable for "Did Iran Attack First?"', summary)
         self.assertIn("Usable English captions were not available for this video.", summary)
         self.assertIn("Audio transcription is not enabled on this server.", summary)
+
+    @patch(
+        "backend.app.extract_youtube_content",
+        return_value={
+            "video_id": "abc123xyz01",
+            "url": "https://www.youtube.com/watch?v=abc123xyz01",
+            "title": "Fake news, propaganda, and conspiracy theories",
+            "author_name": "DW Documentary",
+            "text": (
+                "Fake news, propaganda, and conspiracy theories Channel: DW Documentary "
+                "This documentary examines how fake news, propaganda, and conspiracy theories spread online "
+                "and how journalists, researchers, and fact-checkers respond to disinformation campaigns."
+            ),
+            "summary_text": (
+                "This documentary examines how fake news, propaganda, and conspiracy theories spread online "
+                "and how journalists, researchers, and fact-checkers respond to disinformation campaigns."
+            ),
+            "source_type": "youtube_metadata",
+            "metadata_basis": "description",
+            "source_note": "A usable transcript was not available, so the analysis used the video's public description as a fallback source.",
+            "transcript_error": "YouTube did not return a usable transcript for this video",
+            "fallback_error": "transformers is not installed for audio transcription.",
+        },
+    )
+    def test_st_06c_generate_summary_uses_youtube_description_fallback(self, _mock_youtube):
+        user_id = self.create_user("youtube-description@example.com", "ytdescription", "CasePass123!")
+        with app.app_context():
+            input_record = Input(
+                user_id=user_id,
+                content_type="youtube",
+                content="https://www.youtube.com/watch?v=abc123xyz01",
+            )
+            db.session.add(input_record)
+            db.session.commit()
+            input_id = input_record.id
+
+        response = self.client.post(f"/api/input/{input_id}/summary", headers=self.auth_headers(user_id))
+
+        self.assertEqual(response.status_code, 200)
+        summary = response.get_json()["summary"]
+        self.assertIn("fake news, propaganda, and conspiracy theories spread online", summary.lower())
+        self.assertIn("video's public description", summary)
+        self.assertNotIn("Summary unavailable", summary)
 
     @patch("backend.app.analyze_content")
     def test_st_07_generate_pdf_report(self, mock_analyze):

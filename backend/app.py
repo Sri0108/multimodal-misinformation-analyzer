@@ -875,7 +875,17 @@ def generate_summary(input_id):
 
     if youtube_result:
         text = youtube_result.get("summary_text") or get_youtube_text_for_summary(youtube_result)
-        if youtube_result.get("source_type") == "youtube_metadata":
+        if (
+            youtube_result.get("source_type") == "youtube_metadata"
+            and youtube_result.get("metadata_basis") == "description"
+            and text
+        ):
+            summary = summarize_text(text, prefer_model=False)
+            summary = (
+                f"{summary}\n\n"
+                "Note: This summary is based on the video's public description because a usable transcript was not available."
+            )
+        elif youtube_result.get("source_type") == "youtube_metadata":
             summary = build_youtube_summary_unavailable_message(youtube_result)
         else:
             summary = summarize_text(text)
