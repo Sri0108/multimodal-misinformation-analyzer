@@ -143,6 +143,7 @@ function getNewsRisk(item) {
 function Upload({ user, onLogout }) {
   const [contentType, setContentType] = useState('text');
   const [content, setContent] = useState('');
+  const [youtubeFallbackText, setYoutubeFallbackText] = useState('');
   const [file, setFile] = useState(null);
   const [loading, setLoading] = useState(false);
   const [history, setHistory] = useState([]);
@@ -229,6 +230,7 @@ function Upload({ user, onLogout }) {
   const handleContentTypeChange = (nextType) => {
     setContentType(nextType);
     setContent('');
+    setYoutubeFallbackText('');
     setFile(null);
   };
 
@@ -262,6 +264,10 @@ function Upload({ user, onLogout }) {
 
     if (textEntryTypes.has(contentType)) {
       formData.append('content', content.trim());
+    }
+
+    if (contentType === 'youtube' && youtubeFallbackText.trim()) {
+      formData.append('manual_text', youtubeFallbackText.trim());
     }
 
     if (file && fileEntryTypes.has(contentType)) {
@@ -528,6 +534,22 @@ function Upload({ user, onLogout }) {
                       }
                       required
                     />
+                  </label>
+                )}
+
+                {contentType === 'youtube' && (
+                  <label className="field">
+                    <span>Optional fallback transcript or video description</span>
+                    <textarea
+                      className="rich-input"
+                      rows="6"
+                      value={youtubeFallbackText}
+                      onChange={(e) => setYoutubeFallbackText(e.target.value)}
+                      placeholder="If automatic YouTube extraction fails, paste the transcript or a detailed video description here..."
+                    />
+                    <small>
+                      This helps the app analyze and summarize the video even when YouTube blocks transcript access on hosted servers.
+                    </small>
                   </label>
                 )}
 

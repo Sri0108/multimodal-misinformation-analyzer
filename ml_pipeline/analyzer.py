@@ -10,6 +10,17 @@ from .url_module import fetch_and_extract_from_url
 from .youtube_module import extract_youtube_content, is_youtube_url
 
 
+def _read_manual_text_file(file_path):
+    if not file_path or not os.path.exists(file_path):
+        return ""
+
+    try:
+        with open(file_path, "r", encoding="utf-8") as handle:
+            return handle.read().strip()
+    except Exception:
+        return ""
+
+
 def final_fusion_decision(result, nlp_result):
     risk = nlp_result.get("risk_score", 0)
     credibility = nlp_result.get("credibility_score", 0)
@@ -130,13 +141,22 @@ def analyze_content(content_type, content, file_path):
                     result["explanation"].append(url_data["source_note"])
 
         elif content_type == "youtube":
-            youtube_data = extract_youtube_content(content)
-            text = youtube_data.get("text", "")
-            result["content_source"] = youtube_data.get("source_type", "youtube")
-            source_url = youtube_data.get("url", "")
-            source_title = youtube_data.get("title", "")
-            if youtube_data.get("source_note"):
-                result["explanation"].append(youtube_data["source_note"])
+            manual_text = _read_manual_text_file(file_path)
+            if manual_text:
+                text = manual_text
+                result["content_source"] = "youtube_manual_text"
+                source_url = content or ""
+                result["explanation"].append(
+                    "Used manually provided YouTube transcript or description text."
+                )
+            else:
+                youtube_data = extract_youtube_content(content)
+                text = youtube_data.get("text", "")
+                result["content_source"] = youtube_data.get("source_type", "youtube")
+                source_url = youtube_data.get("url", "")
+                source_title = youtube_data.get("title", "")
+                if youtube_data.get("source_note"):
+                    result["explanation"].append(youtube_data["source_note"])
 
         elif content_type in {"image", "screenshot"}:
             if file_path and os.path.exists(file_path):

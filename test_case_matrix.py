@@ -525,6 +525,38 @@ class SystemFlowTests(unittest.TestCase):
             self.assertEqual(saved_input.content, "https://www.youtube.com/watch?v=abc123xyz01")
 
     @patch("backend.app.analyze_content")
+    def test_st_03c_submit_youtube_link_with_manual_text_saves_sidecar_text(self, mock_analyze):
+        user_id = self.create_user("youtube-manual@example.com", "ytmanual", "CasePass123!")
+        mock_analyze.return_value = {
+            "prediction": "Likely Real",
+            "confidence": 0.82,
+            "manipulation_score": 0.0,
+            "content_source": "youtube_manual_text",
+            "extracted_text": "Manual transcript text.",
+            "explanation": ["Used manually provided YouTube transcript or description text."],
+        }
+
+        response = self.client.post(
+            "/api/analyze",
+            data={
+                "content_type": "youtube",
+                "content": "https://www.youtube.com/watch?v=abc123xyz01",
+                "manual_text": "Manual transcript text with key points from the video.",
+            },
+            headers=self.auth_headers(user_id),
+            content_type="multipart/form-data",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        with app.app_context():
+            saved_input = Input.query.order_by(Input.id.desc()).first()
+            self.assertEqual(saved_input.content_type, "youtube")
+            self.assertTrue(saved_input.file_path)
+            with open(saved_input.file_path, "r", encoding="utf-8") as handle:
+                persisted = handle.read()
+            self.assertIn("Manual transcript text with key points", persisted)
+
+    @patch("backend.app.analyze_content")
     def test_st_04_upload_image_with_embedded_text(self, mock_analyze):
         user_id = self.create_user("image@example.com", "imageuser", "CasePass123!")
         mock_analyze.return_value = {
@@ -733,6 +765,33 @@ class SystemFlowTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         summary = response.get_json()["summary"]
         self.assertIn("Key points", summary)
+
+    @patch("backend.app.summarize_youtube_text_with_groq", return_value="Key points from the manual transcript.")
+    @patch("backend.app.extract_youtube_content", side_effect=AssertionError("Automatic YouTube extraction should not run"))
+    def test_st_06e_generate_summary_uses_saved_manual_youtube_text_first(self, _mock_extract, _mock_groq):
+        user_id = self.create_user("youtube-manual-summary@example.com", "ytmanualsummary", "CasePass123!")
+        manual_path = TEST_UPLOAD_DIR / "manual_youtube_text.txt"
+        manual_path.write_text(
+            "This manually provided transcript explains the key diplomatic calls and the possible mediation role for India.",
+            encoding="utf-8",
+        )
+        with app.app_context():
+            input_record = Input(
+                user_id=user_id,
+                content_type="youtube",
+                content="https://www.youtube.com/watch?v=abc123xyz01",
+                file_path=str(manual_path),
+            )
+            db.session.add(input_record)
+            db.session.commit()
+            input_id = input_record.id
+
+        response = self.client.post(f"/api/input/{input_id}/summary", headers=self.auth_headers(user_id))
+
+        self.assertEqual(response.status_code, 200)
+        summary = response.get_json()["summary"]
+        self.assertIn("Key points from the manual transcript.", summary)
+        self.assertIn("text you provided manually", summary)
 
     @patch("backend.app.analyze_content")
     def test_st_07_generate_pdf_report(self, mock_analyze):

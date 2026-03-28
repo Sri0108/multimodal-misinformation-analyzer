@@ -422,11 +422,38 @@ def resolve_saved_file_path(file_path):
     return resolved if resolved and os.path.exists(resolved) else file_path
 
 
+def read_saved_text_file(file_path):
+    resolved_file_path = resolve_saved_file_path(file_path)
+    if not resolved_file_path or not os.path.exists(resolved_file_path):
+        return ""
+
+    try:
+        with open(resolved_file_path, "r", encoding="utf-8") as handle:
+            return handle.read().strip()
+    except Exception:
+        return ""
+
+
+def save_manual_text_input(manual_text, prefix="manual"):
+    cleaned_text = (manual_text or "").strip()
+    if not cleaned_text:
+        return None
+
+    filename = f"{uuid.uuid4().hex}_{prefix}.txt"
+    file_path = os.path.join(app.config["UPLOAD_FOLDER"], filename)
+    with open(file_path, "w", encoding="utf-8") as handle:
+        handle.write(cleaned_text)
+    return file_path
+
+
 def extract_text_for_input(input_record):
     if input_record.content_type == "text":
         return input_record.content or ""
 
     if input_record.content_type == "youtube":
+        manual_text = read_saved_text_file(input_record.file_path)
+        if manual_text:
+            return manual_text
         try:
             return extract_youtube_text(input_record.content or "")
         except Exception:
@@ -770,6 +797,7 @@ def analyze():
         user_id = requested_user_id or (current_user.id if current_user else None)
         content_type = request_data.get("content_type")
         content = request_data.get("content", "")
+        manual_text = (request_data.get("manual_text") or "").strip()
         uploaded_file = request.files.get("file")
 
         # -------------------------------
@@ -813,6 +841,9 @@ def analyze():
 
             file_path = os.path.join(app.config["UPLOAD_FOLDER"], filename)
             uploaded_file.save(file_path)
+
+        if content_type == "youtube" and manual_text:
+            file_path = save_manual_text_input(manual_text, prefix="youtube_manual")
 
         # -------------------------------
         # SAVE INPUT
@@ -866,15 +897,26 @@ def generate_summary(input_id):
         return jsonify({"error": "Access denied"}), 403
 
     youtube_result = None
-    if input_record.content_type == "youtube" or (
+    manual_youtube_text = ""
+    if input_record.content_type == "youtube":
+        manual_youtube_text = read_saved_text_file(input_record.file_path)
+
+    if not manual_youtube_text and (input_record.content_type == "youtube" or (
         input_record.content_type == "url" and is_youtube_url(input_record.content or "")
-    ):
+    )):
         try:
             youtube_result = extract_youtube_content(input_record.content or "")
         except Exception:
             youtube_result = None
 
-    if youtube_result:
+    if manual_youtube_text:
+        text = manual_youtube_text
+        summary = summarize_youtube_text_with_groq(text, title="") or summarize_text(text, prefer_model=False)
+        summary = (
+            f"{summary}\n\n"
+            "Note: This summary is based on text you provided manually because automatic YouTube extraction was unavailable or incomplete."
+        )
+    elif youtube_result:
         text = youtube_result.get("summary_text") or get_youtube_text_for_summary(youtube_result)
         groq_summary = summarize_youtube_text_with_groq(text, title=youtube_result.get("title", ""))
         if (
