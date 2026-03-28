@@ -41,6 +41,7 @@ from ml_pipeline.summary_module import summarize_text
 from ml_pipeline.text_classifier import classify_text
 from ml_pipeline.youtube_module import (
     _transcript_chunks_to_text,
+    _clean_youtube_description,
     build_youtube_summary_unavailable_message,
     extract_youtube_text,
     get_youtube_text_for_summary,
@@ -255,6 +256,13 @@ class BackendUnitTests(unittest.TestCase):
         )
 
         self.assertEqual(text, "First line Second line")
+
+    def test_ut_15b_clean_youtube_description_rejects_generic_site_boilerplate(self):
+        cleaned = _clean_youtube_description(
+            "Enjoy the videos and music you love, upload original content, and share it all with friends, family, and the world on YouTube."
+        )
+
+        self.assertEqual(cleaned, "")
 
     @patch("ml_pipeline.youtube_module._fetch_oembed_metadata", return_value={"title": "Render video", "author_name": "Reuters"})
     @patch("ml_pipeline.youtube_module.yt_dlp", new=object())

@@ -32,6 +32,10 @@ ENGLISH_TRANSCRIPT_LANGUAGES = ("en", "en-US", "en-GB", "en-IN", "en-CA", "en-AU
 YOUTUBE_ASR_MODEL_NAME = "openai/whisper-small"
 _ASR_PIPELINE = None
 _ASR_PIPELINE_ERROR = None
+GENERIC_YOUTUBE_DESCRIPTION_PREFIXES = (
+    "enjoy the videos and music you love",
+    "share your videos with friends family and the world",
+)
 
 
 def clean_text(text):
@@ -332,6 +336,9 @@ def _clean_youtube_description(description):
     cleaned = re.sub(r"\bwww\.\S+", " ", cleaned)
     cleaned = re.sub(r"[#@]\w+", " ", cleaned)
     cleaned = re.sub(r"\s+", " ", cleaned).strip()
+    lowered = re.sub(r"[^a-z0-9 ]+", "", cleaned.lower())
+    if any(lowered.startswith(prefix) for prefix in GENERIC_YOUTUBE_DESCRIPTION_PREFIXES):
+        return ""
     return cleaned
 
 
