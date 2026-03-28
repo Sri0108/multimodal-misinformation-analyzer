@@ -406,6 +406,62 @@ def _fetch_oembed_metadata(url):
     }
 
 
+def _extract_description_from_watch_html(html_text):
+    if not html_text:
+        return ""
+
+    player_match = re.search(
+        r"ytInitialPlayerResponse\s*=\s*(\{.*?\});",
+        html_text,
+        flags=re.DOTALL,
+    )
+    if player_match:
+        try:
+            player_data = json.loads(player_match.group(1))
+            description = (
+                player_data.get("videoDetails", {}).get("shortDescription", "")
+                if isinstance(player_data, dict)
+                else ""
+            )
+            cleaned = _clean_youtube_description(description)
+            if cleaned:
+                return cleaned
+        except Exception:
+            pass
+
+    meta_match = re.search(
+        r'<meta\s+name="description"\s+content="([^"]+)"',
+        html_text,
+        flags=re.IGNORECASE,
+    )
+    if meta_match:
+        cleaned = _clean_youtube_description(meta_match.group(1))
+        if cleaned:
+            return cleaned
+
+    return ""
+
+
+def _fetch_watch_page_metadata(url):
+    response = requests.get(
+        url,
+        headers={
+            "User-Agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/124.0.0.0 Safari/537.36"
+            )
+        },
+        timeout=15,
+    )
+    response.raise_for_status()
+
+    html_text = response.text
+    return {
+        "description": _extract_description_from_watch_html(html_text),
+    }
+
+
 def get_youtube_text_for_summary(youtube_result):
     text = clean_text(youtube_result.get("text", ""))
     title = clean_text(youtube_result.get("title", ""))
@@ -578,6 +634,14 @@ def extract_youtube_content(url):
         except Exception as error:
             rich_metadata_error = clean_text(str(error))
 
+    watch_page_metadata = {}
+    watch_page_error = None
+    if not rich_metadata.get("description"):
+        try:
+            watch_page_metadata = _fetch_watch_page_metadata(normalized_url)
+        except Exception as error:
+            watch_page_error = clean_text(str(error))
+
     if not metadata.get("title") and rich_metadata.get("title"):
         metadata["title"] = rich_metadata.get("title", "")
     if not metadata.get("author_name") and rich_metadata.get("author_name"):
@@ -585,7 +649,9 @@ def extract_youtube_content(url):
 
     description_text = ""
     if not transcript_text:
-        candidate_description = clean_text(rich_metadata.get("description", ""))
+        candidate_description = clean_text(
+            rich_metadata.get("description", "") or watch_page_metadata.get("description", "")
+        )
         if len(candidate_description.split()) >= 18:
             description_text = candidate_description
 
@@ -601,7 +667,7 @@ def extract_youtube_content(url):
 
     combined_text = clean_text(" ".join(content_blocks))
     if not combined_text:
-        error_bits = [bit for bit in [transcript_error, metadata_error, rich_metadata_error] if bit]
+        error_bits = [bit for bit in [transcript_error, metadata_error, rich_metadata_error, watch_page_error] if bit]
         message = error_bits[0] if error_bits else "Unable to extract transcript or metadata from this YouTube URL."
         raise ValueError(message)
 

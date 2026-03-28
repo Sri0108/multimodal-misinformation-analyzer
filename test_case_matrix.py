@@ -313,6 +313,45 @@ class BackendUnitTests(unittest.TestCase):
         self.assertEqual(result["metadata_basis"], "description")
         self.assertIn("fake news, propaganda, and conspiracy theories", result["summary_text"].lower())
 
+    @patch("ml_pipeline.youtube_module._fetch_oembed_metadata", return_value={"title": "Hosted video", "author_name": "News18"})
+    @patch(
+        "ml_pipeline.youtube_module._fetch_watch_page_metadata",
+        return_value={
+            "description": (
+                "This report examines whether India could play a diplomatic role in the Iran war crisis "
+                "after calls between Prime Minister Narendra Modi, US President Donald Trump, and Iran's president."
+            )
+        },
+    )
+    @patch(
+        "ml_pipeline.youtube_module._fetch_ytdlp_description_metadata",
+        side_effect=ValueError("yt-dlp metadata extraction failed"),
+    )
+    @patch("ml_pipeline.youtube_module.yt_dlp", new=object())
+    @patch(
+        "ml_pipeline.youtube_module._fetch_ytdlp_subtitles",
+        side_effect=ValueError("yt-dlp could not retrieve usable subtitle text for this video."),
+    )
+    @patch(
+        "ml_pipeline.youtube_module._fetch_transcript",
+        side_effect=RequestBlocked("abc123xyz01"),
+    )
+    def test_ut_18_extract_youtube_content_uses_watch_page_description_when_ytdlp_metadata_fails(
+        self,
+        _mock_transcript,
+        _mock_ytdlp_subtitles,
+        _mock_description_metadata,
+        _mock_watch_page,
+        _mock_metadata,
+    ):
+        from ml_pipeline.youtube_module import extract_youtube_content
+
+        result = extract_youtube_content("https://www.youtube.com/watch?v=abc123xyz01")
+
+        self.assertEqual(result["source_type"], "youtube_metadata")
+        self.assertEqual(result["metadata_basis"], "description")
+        self.assertIn("diplomatic role in the iran war crisis", result["summary_text"].lower())
+
 
 class SystemFlowTests(unittest.TestCase):
     @classmethod
