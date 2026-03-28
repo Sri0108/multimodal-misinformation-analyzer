@@ -10,6 +10,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from PIL import Image
+from youtube_transcript_api._errors import RequestBlocked
 
 
 TEST_ROOT = Path(tempfile.mkdtemp(prefix="mma_case_tests_"))
@@ -254,6 +255,27 @@ class BackendUnitTests(unittest.TestCase):
         )
 
         self.assertEqual(text, "First line Second line")
+
+    @patch("ml_pipeline.youtube_module._fetch_oembed_metadata", return_value={"title": "Render video", "author_name": "Reuters"})
+    @patch("ml_pipeline.youtube_module.yt_dlp", new=object())
+    @patch(
+        "ml_pipeline.youtube_module._fetch_ytdlp_subtitles",
+        return_value=("Recovered subtitle text from yt-dlp.", "yt_dlp_subtitles", "en"),
+    )
+    @patch(
+        "ml_pipeline.youtube_module._fetch_transcript",
+        side_effect=RequestBlocked("abc123xyz01"),
+    )
+    def test_ut_16_extract_youtube_text_falls_back_to_ytdlp_subtitles_when_transcript_api_is_blocked(
+        self,
+        _mock_transcript,
+        _mock_ytdlp_subtitles,
+        _mock_metadata,
+    ):
+        text = extract_youtube_text("https://www.youtube.com/watch?v=abc123xyz01")
+
+        self.assertIn("Render video", text)
+        self.assertIn("Recovered subtitle text from yt-dlp.", text)
 
 
 class SystemFlowTests(unittest.TestCase):

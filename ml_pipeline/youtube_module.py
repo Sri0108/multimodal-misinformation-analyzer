@@ -1,5 +1,7 @@
+import json
 import re
 import tempfile
+import xml.etree.ElementTree as ET
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
@@ -154,6 +156,159 @@ def _transcript_chunks_to_text(transcript_chunks):
 def _language_code_is_englishish(language_code):
     normalized = clean_text(language_code).lower()
     return normalized.startswith("en") or normalized.endswith(".en")
+
+
+def _subtitle_format_priority(entry):
+    ext = clean_text(entry.get("ext", "")).lower()
+    preference = {
+        "json3": 0,
+        "json": 1,
+        "vtt": 2,
+        "srv3": 3,
+        "srv2": 4,
+        "srv1": 5,
+        "ttml": 6,
+        "xml": 7,
+    }
+    return preference.get(ext, 50), ext
+
+
+def _parse_json_subtitle_payload(payload):
+    try:
+        data = json.loads(payload)
+    except Exception:
+        return ""
+
+    if isinstance(data, dict) and isinstance(data.get("events"), list):
+        parts = []
+        for event in data["events"]:
+            for segment in event.get("segs", []) or []:
+                cleaned = clean_text(segment.get("utf8", ""))
+                if cleaned:
+                    parts.append(cleaned)
+        return clean_text(" ".join(parts))
+
+    if isinstance(data, list):
+        parts = []
+        for item in data:
+            cleaned = clean_text((item or {}).get("text", ""))
+            if cleaned:
+                parts.append(cleaned)
+        return clean_text(" ".join(parts))
+
+    return ""
+
+
+def _parse_vtt_subtitle_payload(payload):
+    lines = []
+    for raw_line in payload.splitlines():
+        line = clean_text(raw_line)
+        if not line:
+            continue
+        if line.upper().startswith("WEBVTT"):
+            continue
+        if "-->" in line:
+            continue
+        if re.fullmatch(r"\d+", line):
+            continue
+        line = re.sub(r"<[^>]+>", " ", line)
+        line = clean_text(line)
+        if line:
+            lines.append(line)
+    return clean_text(" ".join(lines))
+
+
+def _parse_xml_subtitle_payload(payload):
+    try:
+        root = ET.fromstring(payload)
+    except ET.ParseError:
+        return ""
+
+    parts = []
+    for element in root.iter():
+        tag = element.tag.lower() if isinstance(element.tag, str) else ""
+        if tag.endswith("text") or tag.endswith("p"):
+            cleaned = clean_text(" ".join(element.itertext()))
+            if cleaned:
+                parts.append(cleaned)
+
+    return clean_text(" ".join(parts))
+
+
+def _parse_subtitle_payload(payload, entry):
+    ext = clean_text(entry.get("ext", "")).lower()
+    content_type = clean_text(entry.get("ext", "")).lower()
+
+    if ext in {"json3", "json"}:
+        parsed = _parse_json_subtitle_payload(payload)
+        if parsed:
+            return parsed
+
+    if ext in {"vtt", "srv1", "srv2", "srv3"}:
+        parsed = _parse_vtt_subtitle_payload(payload)
+        if parsed:
+            return parsed
+
+    if ext in {"ttml", "xml"} or "xml" in content_type:
+        parsed = _parse_xml_subtitle_payload(payload)
+        if parsed:
+            return parsed
+
+    parsed = _parse_vtt_subtitle_payload(payload)
+    if parsed:
+        return parsed
+    parsed = _parse_xml_subtitle_payload(payload)
+    if parsed:
+        return parsed
+    return _parse_json_subtitle_payload(payload)
+
+
+def _fetch_ytdlp_subtitles(url):
+    if yt_dlp is None:
+        raise ValueError("subtitle fallback is unavailable because yt-dlp is not installed")
+
+    options = {
+        "skip_download": True,
+        "quiet": True,
+        "no_warnings": True,
+        "noplaylist": True,
+        "writesubtitles": True,
+        "writeautomaticsub": True,
+    }
+
+    with yt_dlp.YoutubeDL(options) as downloader:
+        info = downloader.extract_info(url, download=False)
+
+    subtitle_sources = [
+        ("yt_dlp_subtitles", info.get("subtitles") or {}),
+        ("yt_dlp_auto_captions", info.get("automatic_captions") or {}),
+    ]
+
+    for mode, subtitle_map in subtitle_sources:
+        if not subtitle_map:
+            continue
+
+        preferred_languages = sorted(
+            subtitle_map.keys(),
+            key=lambda code: (0 if _language_code_is_englishish(code) else 1, code),
+        )
+
+        for language_code in preferred_languages:
+            entries = subtitle_map.get(language_code) or []
+            for entry in sorted(entries, key=_subtitle_format_priority):
+                subtitle_url = entry.get("url")
+                if not subtitle_url:
+                    continue
+                try:
+                    response = requests.get(subtitle_url, timeout=15)
+                    response.raise_for_status()
+                    transcript_text = _parse_subtitle_payload(response.text, entry)
+                    if transcript_text:
+                        return transcript_text, mode, language_code
+                except Exception:
+                    continue
+
+    raise ValueError("yt-dlp could not retrieve usable subtitle text for this video.")
 
 
 def _fetch_transcript_object_text(transcript, mode):
@@ -356,6 +511,14 @@ def extract_youtube_content(url):
     except Exception as error:
         transcript_error = _friendly_transcript_error(error)
 
+    subtitle_error = None
+    if not transcript_text and yt_dlp is not None:
+        try:
+            transcript_text, transcript_mode, transcript_language = _fetch_ytdlp_subtitles(normalized_url)
+            transcript_error = None
+        except Exception as error:
+            subtitle_error = clean_text(str(error))
+
     if not transcript_text and _audio_fallback_enabled():
         try:
             transcript_text = _transcribe_audio_fallback(normalized_url)
@@ -402,6 +565,10 @@ def extract_youtube_content(url):
             f"An English transcript was unavailable, so the analysis used an auto-translated English transcript "
             f"from {transcript_language or 'the original language'}."
         )
+    elif transcript_mode == "yt_dlp_subtitles":
+        source_note = "The standard transcript API was unavailable, so the analysis used subtitle text recovered through yt-dlp."
+    elif transcript_mode == "yt_dlp_auto_captions":
+        source_note = "The standard transcript API was unavailable, so the analysis used auto-generated captions recovered through yt-dlp."
     elif transcript_mode == "audio_transcribed_to_english":
         source_note = "No caption transcript was available, so the analysis used an English audio transcription fallback."
 
@@ -423,6 +590,7 @@ def extract_youtube_content(url):
         "transcript_mode": transcript_mode,
         "transcript_language": transcript_language,
         "transcript_error": transcript_error or "",
+        "subtitle_error": subtitle_error or "",
         "fallback_error": fallback_error or "",
     }
 
