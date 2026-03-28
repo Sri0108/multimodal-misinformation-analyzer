@@ -1,4 +1,5 @@
 import json
+import os
 import re
 import tempfile
 import xml.etree.ElementTree as ET
@@ -26,20 +27,88 @@ try:
 except Exception:
     pipeline = None
 
+try:
+    from groq import Groq
+except Exception:
+    Groq = None
+
 
 OEMBED_URL = "https://www.youtube.com/oembed"
 ENGLISH_TRANSCRIPT_LANGUAGES = ("en", "en-US", "en-GB", "en-IN", "en-CA", "en-AU", "a.en")
 YOUTUBE_ASR_MODEL_NAME = "openai/whisper-small"
 _ASR_PIPELINE = None
 _ASR_PIPELINE_ERROR = None
+_GROQ_CLIENT = None
+_GROQ_CLIENT_ERROR = None
 GENERIC_YOUTUBE_DESCRIPTION_PREFIXES = (
     "enjoy the videos and music you love",
     "share your videos with friends family and the world",
 )
+GROQ_YOUTUBE_SUMMARY_MODEL = os.getenv("GROQ_YOUTUBE_SUMMARY_MODEL", "llama-3.3-70b-versatile")
 
 
 def clean_text(text):
     return re.sub(r"\s+", " ", text or "").strip()
+
+
+def _get_groq_client():
+    global _GROQ_CLIENT, _GROQ_CLIENT_ERROR
+
+    if _GROQ_CLIENT is not None or _GROQ_CLIENT_ERROR is not None:
+        return _GROQ_CLIENT
+
+    api_key = os.getenv("GROQ_API_KEY", "").strip()
+    if not api_key:
+        _GROQ_CLIENT_ERROR = "GROQ_API_KEY is not configured."
+        return None
+
+    if Groq is None:
+        _GROQ_CLIENT_ERROR = "groq package is not installed."
+        return None
+
+    try:
+        _GROQ_CLIENT = Groq(api_key=api_key)
+    except Exception as error:
+        _GROQ_CLIENT_ERROR = str(error)
+        _GROQ_CLIENT = None
+
+    return _GROQ_CLIENT
+
+
+def summarize_youtube_text_with_groq(text, title=""):
+    cleaned_text = clean_text(text)
+    if len(cleaned_text.split()) < 25:
+        return ""
+
+    client = _get_groq_client()
+    if client is None:
+        return ""
+
+    transcript_excerpt = cleaned_text[:12000]
+    title_line = f"Video title: {clean_text(title)}\n" if clean_text(title) else ""
+
+    prompt = (
+        "Summarize this YouTube video in English with these sections:\n"
+        "1. Key points\n"
+        "2. Important insights\n"
+        "3. Final conclusion\n\n"
+        "Rules:\n"
+        "- Be factual and concise.\n"
+        "- Do not invent details that are not in the transcript or description.\n"
+        "- If the text looks incomplete, summarize only what is supported.\n\n"
+        f"{title_line}"
+        f"Source text:\n{transcript_excerpt}"
+    )
+
+    try:
+        response = client.chat.completions.create(
+            model=GROQ_YOUTUBE_SUMMARY_MODEL,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.2,
+        )
+        return clean_text(response.choices[0].message.content if response.choices else "")
+    except Exception:
+        return ""
 
 
 def _friendly_transcript_error(error):

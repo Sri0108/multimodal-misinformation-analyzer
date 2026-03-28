@@ -129,6 +129,7 @@ Recommended environment variables for the web service:
 - `DEFAULT_ADMIN_EMAIL`
 - `DEFAULT_ADMIN_USERNAME`
 - `DEFAULT_ADMIN_PASSWORD`
+- `GROQ_API_KEY` if you want Groq-powered YouTube summaries
 
 Do not use local-only development values on Render such as:
 
@@ -159,6 +160,7 @@ Keep in mind:
 - `DEFAULT_ADMIN_USERNAME`
 - `DEFAULT_ADMIN_PASSWORD`
 - `SEED_DEFAULT_ADMIN=true` only if you intentionally want Render to create an admin account on boot
+- `GROQ_API_KEY` for optional Groq-based YouTube summarization
 
 ### Important note about persistence
 

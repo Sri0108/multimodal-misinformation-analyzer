@@ -56,6 +56,7 @@ from ml_pipeline.youtube_module import (
     extract_youtube_text,
     get_youtube_text_for_summary,
     is_youtube_url,
+    summarize_youtube_text_with_groq,
 )
 
 # -------------------------------
@@ -875,12 +876,13 @@ def generate_summary(input_id):
 
     if youtube_result:
         text = youtube_result.get("summary_text") or get_youtube_text_for_summary(youtube_result)
+        groq_summary = summarize_youtube_text_with_groq(text, title=youtube_result.get("title", ""))
         if (
             youtube_result.get("source_type") == "youtube_metadata"
             and youtube_result.get("metadata_basis") == "description"
             and text
         ):
-            summary = summarize_text(text, prefer_model=False)
+            summary = groq_summary or summarize_text(text, prefer_model=False)
             summary = (
                 f"{summary}\n\n"
                 "Note: This summary is based on the video's public description because a usable transcript was not available."
@@ -888,7 +890,7 @@ def generate_summary(input_id):
         elif youtube_result.get("source_type") == "youtube_metadata":
             summary = build_youtube_summary_unavailable_message(youtube_result)
         else:
-            summary = summarize_text(text)
+            summary = groq_summary or summarize_text(text)
     else:
         text = extract_text_for_input(input_record) or input_record.content or ""
         summary = summarize_text(text)

@@ -45,6 +45,7 @@ from ml_pipeline.youtube_module import (
     build_youtube_summary_unavailable_message,
     extract_youtube_text,
     get_youtube_text_for_summary,
+    summarize_youtube_text_with_groq,
 )
 
 app = backend_app_module.app
@@ -263,6 +264,26 @@ class BackendUnitTests(unittest.TestCase):
         )
 
         self.assertEqual(cleaned, "")
+
+    @patch("ml_pipeline.youtube_module._get_groq_client")
+    def test_ut_15c_summarize_youtube_text_with_groq_returns_model_output(self, mock_get_client):
+        mock_client = SimpleNamespace(
+            chat=SimpleNamespace(
+                completions=SimpleNamespace(
+                    create=lambda **kwargs: SimpleNamespace(
+                        choices=[SimpleNamespace(message=SimpleNamespace(content="1. Key points 2. Important insights 3. Final conclusion"))]
+                    )
+                )
+            )
+        )
+        mock_get_client.return_value = mock_client
+
+        summary = summarize_youtube_text_with_groq(
+            "This is a sufficiently long transcript text " * 8,
+            title="Sample Video",
+        )
+
+        self.assertIn("Key points", summary)
 
     @patch("ml_pipeline.youtube_module._fetch_oembed_metadata", return_value={"title": "Render video", "author_name": "Reuters"})
     @patch("ml_pipeline.youtube_module.yt_dlp", new=object())
@@ -678,6 +699,40 @@ class SystemFlowTests(unittest.TestCase):
         self.assertIn("fake news, propaganda, and conspiracy theories spread online", summary.lower())
         self.assertIn("video's public description", summary)
         self.assertNotIn("Summary unavailable", summary)
+
+    @patch("backend.app.summarize_youtube_text_with_groq", return_value="1. Key points 2. Important insights 3. Final conclusion")
+    @patch(
+        "backend.app.extract_youtube_content",
+        return_value={
+            "video_id": "abc123xyz01",
+            "url": "https://www.youtube.com/watch?v=abc123xyz01",
+            "title": "Sample YouTube Summary",
+            "author_name": "TruthCheck",
+            "text": "Sample YouTube Summary Channel: TruthCheck Transcript text from the video.",
+            "summary_text": "Transcript text from the video with enough detail to summarize clearly and accurately.",
+            "source_type": "youtube_transcript",
+            "source_note": "",
+            "transcript_error": "",
+            "fallback_error": "",
+        },
+    )
+    def test_st_06d_generate_summary_prefers_groq_for_youtube_text(self, _mock_youtube, _mock_groq_summary):
+        user_id = self.create_user("youtube-groq@example.com", "ytgroq", "CasePass123!")
+        with app.app_context():
+            input_record = Input(
+                user_id=user_id,
+                content_type="youtube",
+                content="https://www.youtube.com/watch?v=abc123xyz01",
+            )
+            db.session.add(input_record)
+            db.session.commit()
+            input_id = input_record.id
+
+        response = self.client.post(f"/api/input/{input_id}/summary", headers=self.auth_headers(user_id))
+
+        self.assertEqual(response.status_code, 200)
+        summary = response.get_json()["summary"]
+        self.assertIn("Key points", summary)
 
     @patch("backend.app.analyze_content")
     def test_st_07_generate_pdf_report(self, mock_analyze):
