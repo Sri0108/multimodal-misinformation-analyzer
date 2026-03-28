@@ -1,13 +1,19 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { buildApiUrl } from '../api';
+import { apiFetch, buildApiUrl } from '../api';
 
 const contentOptions = [
   { value: 'text', title: 'Text', hint: 'Paste a claim, post, or article snippet.' },
   { value: 'url', title: 'URL', hint: 'Inspect a webpage or shared article link.' },
+  { value: 'youtube', title: 'YouTube', hint: 'Analyze a YouTube link using transcript or video metadata.' },
   { value: 'document', title: 'Document', hint: 'Upload PDF, TXT, or DOCX evidence.' },
-  { value: 'image', title: 'Image', hint: 'Scan screenshots, posters, and image claims.' },
+  { value: 'image', title: 'Image', hint: 'Inspect photos, posters, and visual claim evidence.' },
+  { value: 'screenshot', title: 'Screenshot', hint: 'Run OCR and manipulation checks on captured screens.' },
 ];
+
+const textEntryTypes = new Set(['text', 'url', 'youtube']);
+const fileEntryTypes = new Set(['image', 'document', 'screenshot']);
+const imageEntryTypes = new Set(['image', 'screenshot']);
 
 const sampleCyberMessages = [
   {
@@ -34,6 +40,11 @@ const sampleAnalysisInputs = {
     { label: 'Reuters', text: 'https://www.reuters.com' },
     { label: 'AP News', text: 'https://www.apnews.com' },
     { label: 'Snopes', text: 'https://www.snopes.com' },
+  ],
+  youtube: [
+    { label: 'Reuters Fact Check', text: 'https://www.youtube.com/watch?v=qWVkNhCevj0' },
+    { label: 'DW Disinformation', text: 'https://www.youtube.com/watch?v=HDtFpGfORpE' },
+    { label: 'Reuters Short Link', text: 'https://youtu.be/qWVkNhCevj0' },
   ],
 };
 
@@ -129,7 +140,7 @@ function getNewsRisk(item) {
   return { label: 'Low', tone: 'low' };
 }
 
-function Upload({ token, user, onLogout }) {
+function Upload({ user, onLogout }) {
   const [contentType, setContentType] = useState('text');
   const [content, setContent] = useState('');
   const [file, setFile] = useState(null);
@@ -170,11 +181,7 @@ function Upload({ token, user, onLogout }) {
       setNewsLoading(true);
       setNewsError('');
       try {
-        const response = await fetch(buildApiUrl('/api/top-fake-news'), {
-          headers: {
-            Authorization: `Bearer ${token}`
-          }
-        });
+        const response = await apiFetch('/api/top-fake-news');
         const data = await response.json();
         if (!response.ok) {
           throw new Error(data.error || 'Failed to fetch top fake news');
@@ -197,7 +204,7 @@ function Upload({ token, user, onLogout }) {
     return () => {
       mounted = false;
     };
-  }, [token]);
+  }, []);
 
   const activeOption = contentOptions.find((option) => option.value === contentType);
 
@@ -233,12 +240,17 @@ function Upload({ token, user, onLogout }) {
       return;
     }
 
-    if ((contentType === 'text' || contentType === 'url') && !content.trim()) {
-      alert(`Please enter ${contentType === 'text' ? 'text content' : 'a URL'}`);
+    if (textEntryTypes.has(contentType) && !content.trim()) {
+      const expectedContent = contentType === 'text'
+        ? 'text content'
+        : contentType === 'youtube'
+          ? 'a YouTube link'
+          : 'a URL';
+      alert(`Please enter ${expectedContent}`);
       return;
     }
 
-    if ((contentType === 'image' || contentType === 'document') && !file) {
+    if (fileEntryTypes.has(contentType) && !file) {
       alert('Please select a file');
       return;
     }
@@ -248,21 +260,18 @@ function Upload({ token, user, onLogout }) {
     const formData = new FormData();
     formData.append('content_type', contentType);
 
-    if (contentType === 'text' || contentType === 'url') {
+    if (textEntryTypes.has(contentType)) {
       formData.append('content', content.trim());
     }
 
-    if (file && (contentType === 'image' || contentType === 'document')) {
+    if (file && fileEntryTypes.has(contentType)) {
       formData.append('file', file);
     }
 
     try {
       const analyzeUrl = buildApiUrl('/api/analyze');
-      const response = await fetch(analyzeUrl, {
+      const response = await apiFetch(analyzeUrl, {
         method: 'POST',
-        headers: {
-          Authorization: `Bearer ${token}`
-        },
         body: formData
       });
 
@@ -374,7 +383,7 @@ function Upload({ token, user, onLogout }) {
   ];
 
   const howItWorks = [
-    'Choose an input type: text, URL, document, or image.',
+    'Choose an input type: text, URL, YouTube, document, image, or screenshot.',
     'The platform extracts content and checks trusted evidence first.',
     'NLP and classifier signals are combined when source evidence is limited.',
     'You get verdict, confidence, source links, and cyber safety guidance.',
@@ -474,9 +483,11 @@ function Upload({ token, user, onLogout }) {
               </div>
 
               <form className="analysis-form" onSubmit={handleSubmit}>
-                {(contentType === 'text' || contentType === 'url') && (
+                {textEntryTypes.has(contentType) && sampleAnalysisInputs[contentType] && (
                   <div className="input-samples-inline">
-                    <strong className="input-samples-title">Sample {contentType === 'text' ? 'claims' : 'links'}:</strong>
+                    <strong className="input-samples-title">
+                      Sample {contentType === 'text' ? 'claims' : 'links'}:
+                    </strong>
                     <div className="input-samples-list">
                       {sampleAnalysisInputs[contentType].map((sample) => (
                         <span
@@ -494,9 +505,15 @@ function Upload({ token, user, onLogout }) {
                   </div>
                 )}
 
-                {(contentType === 'text' || contentType === 'url') && (
+                {textEntryTypes.has(contentType) && (
                   <label className="field">
-                    <span>{contentType === 'text' ? 'Paste text to inspect' : 'Paste the URL to inspect'}</span>
+                    <span>
+                      {contentType === 'text'
+                        ? 'Paste text to inspect'
+                        : contentType === 'youtube'
+                          ? 'Paste the YouTube link to inspect'
+                          : 'Paste the URL to inspect'}
+                    </span>
                     <textarea
                       className="rich-input"
                       rows="8"
@@ -505,23 +522,42 @@ function Upload({ token, user, onLogout }) {
                       placeholder={
                         contentType === 'text'
                           ? 'Paste a post, article paragraph, or suspicious claim here...'
-                          : 'https://example.com/article'
+                          : contentType === 'youtube'
+                            ? 'https://www.youtube.com/watch?v=...'
+                            : 'https://example.com/article'
                       }
                       required
                     />
                   </label>
                 )}
 
-                {(contentType === 'image' || contentType === 'document') && (
+                {fileEntryTypes.has(contentType) && (
                   <label className="field upload-dropzone">
-                    <span>{contentType === 'image' ? 'Upload image evidence' : 'Upload a document for analysis'}</span>
+                    <span>
+                      {contentType === 'document'
+                        ? 'Upload a document for analysis'
+                        : contentType === 'screenshot'
+                          ? 'Upload a screenshot for OCR analysis'
+                          : 'Upload image evidence'}
+                    </span>
                     <input
                       type="file"
                       className="file-input"
+                      accept={
+                        imageEntryTypes.has(contentType)
+                          ? '.png,.jpg,.jpeg,image/png,image/jpeg'
+                          : '.pdf,.txt,.docx,application/pdf,text/plain,application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+                      }
                       onChange={(e) => setFile(e.target.files[0])}
                       required
                     />
-                    <small>{file ? `Selected: ${file.name}` : 'Supported: PNG, JPG, PDF, TXT, DOCX'}</small>
+                    <small>
+                      {file
+                        ? `Selected: ${file.name}`
+                        : imageEntryTypes.has(contentType)
+                          ? 'Supported: PNG, JPG, JPEG'
+                          : 'Supported: PDF, TXT, DOCX'}
+                    </small>
                   </label>
                 )}
 
@@ -622,9 +658,7 @@ function Upload({ token, user, onLogout }) {
                     setNewsLoading(true);
                     setNewsError('');
                     try {
-                      const response = await fetch(buildApiUrl('/api/top-fake-news'), {
-                        headers: { Authorization: `Bearer ${token}` }
-                      });
+                      const response = await apiFetch('/api/top-fake-news');
                       const data = await response.json();
                       if (!response.ok) {
                         throw new Error(data.error || 'Failed to refresh news');

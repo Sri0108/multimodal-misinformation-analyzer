@@ -1,5 +1,6 @@
-from flask_sqlalchemy import SQLAlchemy
 from datetime import datetime
+
+from flask_sqlalchemy import SQLAlchemy
 
 db = SQLAlchemy()
 
@@ -49,3 +50,18 @@ class Report(db.Model):
     report_path = db.Column(db.String(255))
 
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+
+class TokenBlocklist(db.Model):
+
+    id = db.Column(db.Integer, primary_key=True)
+
+    jti = db.Column(db.String(255), unique=True, nullable=False, index=True)
+
+    user_id = db.Column(db.Integer)
+
+    token_type = db.Column(db.String(20), default="access")
+
+    expires_at = db.Column(db.DateTime)
+
+    revoked_at = db.Column(db.DateTime, default=datetime.utcnow)

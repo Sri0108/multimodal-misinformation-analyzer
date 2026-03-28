@@ -7,6 +7,7 @@ from .ocr_module import extract_text_from_image
 from .source_verifier import verify_claim_with_sources
 from .text_classifier import classify_text
 from .url_module import fetch_and_extract_from_url
+from .youtube_module import extract_youtube_content, is_youtube_url
 
 
 def final_fusion_decision(result, nlp_result):
@@ -63,66 +64,85 @@ def analyze_content(content_type, content, file_path):
             result["content_source"] = "direct_text"
 
         elif content_type == "url":
+            if is_youtube_url(content or ""):
+                youtube_data = extract_youtube_content(content)
+                text = youtube_data.get("text", "")
+                result["content_source"] = youtube_data.get("source_type", "youtube")
+                source_url = youtube_data.get("url", "")
+                source_title = youtube_data.get("title", "")
+                if youtube_data.get("source_note"):
+                    result["explanation"].append(youtube_data["source_note"])
+            else:
             # FIX 1: Guard against None return from fetch_and_extract_from_url
-            url_data = fetch_and_extract_from_url(content)
+                url_data = fetch_and_extract_from_url(content)
 
-            if url_data is None:
-                result["prediction"] = "Error"
-                result["confidence"] = 0.0
-                result["explanation"] = [
-                    "URL fetch returned no data. The page may be unreachable or blocked."
-                ]
-                return result
+                if url_data is None:
+                    result["prediction"] = "Error"
+                    result["confidence"] = 0.0
+                    result["explanation"] = [
+                        "URL fetch returned no data. The page may be unreachable or blocked."
+                    ]
+                    return result
 
-            # FIX 2: url_module returns "webpage" / "amp_cache" / "search_snippet" on success,
-            # and "error" on failure. Accept all non-error source types as valid.
-            if url_data.get("source_type") == "error":
-                raw_error = url_data.get("error", "") or url_data.get("text", "") or ""
-                raw_error_str = str(raw_error)
+                # FIX 2: url_module returns "webpage" / "amp_cache" / "search_snippet" on success,
+                # and "error" on failure. Accept all non-error source types as valid.
+                if url_data.get("source_type") == "error":
+                    raw_error = url_data.get("error", "") or url_data.get("text", "") or ""
+                    raw_error_str = str(raw_error)
 
-                if "403" in raw_error_str:
-                    friendly = (
-                        "Access denied (403): This website blocks automated access. "
-                        "Try pasting the article text directly instead."
-                    )
-                elif "404" in raw_error_str:
-                    friendly = (
-                        "Page not found (404): The URL may be incorrect or the article has been removed."
-                    )
-                elif "429" in raw_error_str:
-                    friendly = "Rate limited (429): Too many requests to this site. Please try again shortly."
-                elif "timeout" in raw_error_str.lower() or "timed out" in raw_error_str.lower():
-                    friendly = "Request timed out: The website took too long to respond."
-                elif "ssl" in raw_error_str.lower() or "certificate" in raw_error_str.lower():
-                    friendly = "SSL error: Could not establish a secure connection to this website."
-                else:
-                    friendly = f"Could not fetch the URL: {raw_error_str}"
+                    if "403" in raw_error_str:
+                        friendly = (
+                            "Access denied (403): This website blocks automated access. "
+                            "Try pasting the article text directly instead."
+                        )
+                    elif "404" in raw_error_str:
+                        friendly = (
+                            "Page not found (404): The URL may be incorrect or the article has been removed."
+                        )
+                    elif "429" in raw_error_str:
+                        friendly = "Rate limited (429): Too many requests to this site. Please try again shortly."
+                    elif "timeout" in raw_error_str.lower() or "timed out" in raw_error_str.lower():
+                        friendly = "Request timed out: The website took too long to respond."
+                    elif "ssl" in raw_error_str.lower() or "certificate" in raw_error_str.lower():
+                        friendly = "SSL error: Could not establish a secure connection to this website."
+                    else:
+                        friendly = f"Could not fetch the URL: {raw_error_str}"
 
-                result["prediction"] = "Error"
-                result["confidence"] = 0.0
-                result["explanation"] = [friendly]
-                return result
+                    result["prediction"] = "Error"
+                    result["confidence"] = 0.0
+                    result["explanation"] = [friendly]
+                    return result
 
-            # FIX 3: Even on "webpage" source_type, text can be an error string
-            raw_text = url_data.get("text") or ""
-            if raw_text.startswith("Unable to fetch URL:") or raw_text.startswith("Error processing URL:"):
-                result["prediction"] = "Error"
-                result["confidence"] = 0.0
-                result["explanation"] = [raw_text]
-                return result
+                # FIX 3: Even on "webpage" source_type, text can be an error string
+                raw_text = url_data.get("text") or ""
+                if raw_text.startswith("Unable to fetch URL:") or raw_text.startswith("Error processing URL:"):
+                    result["prediction"] = "Error"
+                    result["confidence"] = 0.0
+                    result["explanation"] = [raw_text]
+                    return result
 
-            text = raw_text
-            # Store which tier was used (webpage / amp_cache / search_snippet)
-            result["content_source"] = url_data.get("source_type", "url")
-            source_url = url_data.get("url", "")
-            source_title = url_data.get("title", "")
-            if url_data.get("source_note"):
-                result["explanation"].append(url_data["source_note"])
+                text = raw_text
+                # Store which tier was used (webpage / amp_cache / search_snippet)
+                result["content_source"] = url_data.get("source_type", "url")
+                source_url = url_data.get("url", "")
+                source_title = url_data.get("title", "")
+                if url_data.get("source_note"):
+                    result["explanation"].append(url_data["source_note"])
 
-        elif content_type == "image":
+        elif content_type == "youtube":
+            youtube_data = extract_youtube_content(content)
+            text = youtube_data.get("text", "")
+            result["content_source"] = youtube_data.get("source_type", "youtube")
+            source_url = youtube_data.get("url", "")
+            source_title = youtube_data.get("title", "")
+            if youtube_data.get("source_note"):
+                result["explanation"].append(youtube_data["source_note"])
+
+        elif content_type in {"image", "screenshot"}:
             if file_path and os.path.exists(file_path):
                 text = extract_text_from_image(file_path)
                 result["manipulation_score"] = detect_manipulation(file_path)
+                result["content_source"] = "screenshot_ocr" if content_type == "screenshot" else "image_ocr"
 
                 if text == "No text found in image.":
                     result["prediction"] = "No Text Detected"
@@ -170,7 +190,7 @@ def analyze_content(content_type, content, file_path):
 
             result["sentiment"] = nlp_result.get("sentiment", "neutral")
             result["signals"] = nlp_result.get("signals", {})
-            should_verify_sources = content_type in {"text", "url"}
+            should_verify_sources = content_type in {"text", "url", "youtube"}
 
             if should_verify_sources:
                 try:

@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
-import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
-import { buildApiUrl } from '../api';
+import { apiFetch, buildApiUrl } from '../api';
 
 function Login({ onLogin, mode = 'user' }) {
   const navigate = useNavigate();
@@ -22,22 +21,33 @@ function Login({ onLogin, mode = 'user' }) {
     try {
       const url = isRegister ? buildApiUrl('/api/register') : buildApiUrl('/api/login');
       const data = isRegister ? { email, password, username } : { email, password };
-      const response = await axios.post(url, data);
+      const response = await apiFetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+      });
+      const responseData = await response.json();
       
       if (isRegister) {
+        if (!response.ok) {
+          throw new Error(responseData.error || 'Registration failed');
+        }
         setIsRegister(false);
         alert('Registration successful! Please login.');
       } else {
-        if (!response.data.token || !response.data.user) {
-          throw new Error('Login response is missing token or user data');
+        if (!response.ok) {
+          throw new Error(responseData.error || 'Login failed');
         }
-        if (isAdminMode && response.data.user.role !== 'admin') {
+        if (!responseData.user) {
+          throw new Error('Login response is missing user data');
+        }
+        if (isAdminMode && responseData.user.role !== 'admin') {
           throw new Error('This account does not have admin access.');
         }
-        onLogin(response.data.token, response.data.user);
+        onLogin(responseData.user);
       }
     } catch (err) {
-      setError(err.response?.data?.error || err.message || 'An error occurred');
+      setError(err.message || 'An error occurred');
     }
   };
 

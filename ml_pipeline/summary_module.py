@@ -1,10 +1,11 @@
 import os
+import math
 import re
 from collections import Counter
 
 try:
     from transformers import AutoModelForSeq2SeqLM, AutoTokenizer, pipeline
-except ImportError:
+except Exception:
     AutoModelForSeq2SeqLM = None
     AutoTokenizer = None
     pipeline = None
@@ -44,6 +45,24 @@ IMPORTANT_TERMS = {
     "advisory",
 }
 
+CONTEXT_TERMS = {
+    "energy",
+    "oil",
+    "flows",
+    "shipping",
+    "merchant",
+    "cargo",
+    "corridor",
+    "route",
+    "routes",
+    "traffic",
+    "transit",
+    "delay",
+    "delays",
+    "trade",
+    "strait",
+}
+
 OFF_TOPIC_TEASER_GROUPS = {
     "sports": {
         "ipl", "cricket", "captain", "captaincy", "run-scorer", "bowling",
@@ -68,12 +87,46 @@ def _clean_text(text):
     return re.sub(r"\s+", " ", (text or "")).strip()
 
 
+def _looks_like_headline_fragment_collection(text):
+    raw = text or ""
+    normalized = _clean_text(raw)
+    if not normalized:
+        return False
+
+    if raw.count("+") >= 1:
+        return True
+    if "•" in raw or "â€¢" in raw:
+        return True
+
+    return False
+
+
+def _strip_leading_noise_prefix(text):
+    cleaned = text or ""
+    patterns = [
+        r"^\s*TOI Breaking News Latest News India News World News(?:\s*\|\s*Sign In\s*\|\s*Subscribe)?\s*",
+        r"^\s*TOI Breaking News Latest News India News World News Sign In Subscribe\s*",
+        r"^\s*Sign In Subscribe\s*",
+        r"^\s*Sign In\s*\|\s*Subscribe\s*",
+    ]
+
+    for pattern in patterns:
+        cleaned = re.sub(pattern, "", cleaned, flags=re.IGNORECASE)
+
+    return cleaned
+
+
 def _split_sentences(text):
-    normalized = (text or "").replace("\r\n", "\n").replace("\r", "\n")
+    normalized = _strip_leading_noise_prefix((text or "").replace("\r\n", "\n").replace("\r", "\n"))
     normalized = re.sub(r"\n{2,}", ". ", normalized)
-    normalized = re.sub(r"\n+", " ", normalized)
+    normalized = re.sub(r"\n+", ". ", normalized)
     normalized = re.sub(
         r"(?<=[a-z0-9]) (?=[A-Z][a-z]+ [A-Z][a-z]+(?:,|\s(?:is|has|was|will)\b))",
+        ". ",
+        normalized,
+    )
+    normalized = re.sub(
+        r"(?<![.!?]) (?=(?:Officials said|Government officials|Government teams|Government|Analysts said|Analysts|The operation|The latest deployment|This comes|Indian officials)\b)",
         ". ",
         normalized,
     )
@@ -140,12 +193,14 @@ def _build_candidate_window(sentences, anchor_terms):
         tokens = _sentence_tokens(sentence)
         anchor_overlap = len(set(tokens) & anchor_terms)
         anchor_similarity = _sentence_similarity(tokens, anchor_tokens)
+        important_hits = sum(1 for term in IMPORTANT_TERMS if term in sentence.lower())
+        context_hits = sum(1 for term in CONTEXT_TERMS if term in sentence.lower())
 
         if index < 2:
             candidates.append((index, sentence, tokens, anchor_overlap, anchor_similarity))
             continue
 
-        if anchor_overlap >= 1 or anchor_similarity >= 0.08:
+        if anchor_overlap >= 1 or anchor_similarity >= 0.08 or important_hits >= 1 or context_hits >= 2:
             candidates.append((index, sentence, tokens, anchor_overlap, anchor_similarity))
             off_topic_run = 0
             continue
@@ -188,6 +243,12 @@ def _fallback_summary(sentences, max_sentences):
 def _clean_headline_fragment(fragment):
     candidate = _clean_text(fragment)
     candidate = re.sub(
+        r"^(?:[A-Za-z]{1,3}[\W_]+){2,}",
+        "",
+        candidate,
+        flags=re.IGNORECASE,
+    )
+    candidate = re.sub(
         r"^.*?\bcurated by copilot\b\s*-\s*\d+h\s*",
         "",
         candidate,
@@ -211,6 +272,8 @@ def _trim_unreadable_prefix(fragment):
             break
 
         letter_words = [re.sub(r"[^A-Za-z']", "", word) for word in window]
+        first_word_raw = window[0]
+        first_word = letter_words[0] if letter_words else ""
         readable = 0
         titled = 0
         for word in letter_words:
@@ -222,7 +285,14 @@ def _trim_unreadable_prefix(fragment):
             if word[:1].isupper():
                 titled += 1
 
-        if readable >= 3 and (titled >= 1 or any(char.isdigit() for char in " ".join(window))):
+        first_word_readable = (
+            len(first_word) >= 3
+            and not any(char.isdigit() for char in first_word_raw)
+            and re.search(r"[aeiouy]", first_word.lower())
+            and re.search(r"[bcdfghjklmnpqrstvwxyz]", first_word.lower())
+        )
+
+        if readable >= 3 and first_word_readable:
             trimmed = " ".join(words[start:])
             return trimmed
 
@@ -256,6 +326,8 @@ def _is_readable_headline_fragment(fragment):
 def _headline_fragment_summary(text):
     normalized = _clean_text(text)
     if not normalized:
+        return ""
+    if not _looks_like_headline_fragment_collection(text):
         return ""
 
     parts = re.split(r"\s+\+\s+|\s+[|]\s+|\s+[•]\s+|\n+", normalized)
@@ -298,7 +370,7 @@ def _target_sentence_count(sentences, max_sentences=None):
     if sentence_count <= 4:
         return min(sentence_count or 1, upper_bound)
 
-    dynamic_count = max(4, round(sentence_count * 0.55))
+    dynamic_count = max(4, math.ceil(sentence_count * 0.7))
     if word_count >= 280:
         dynamic_count += 1
     if word_count >= 420:
@@ -321,6 +393,7 @@ def _extractive_summary(sentences, max_sentences=None):
             continue
 
         important_hits = sum(1 for term in IMPORTANT_TERMS if term in sentence.lower())
+        context_hits = sum(1 for term in CONTEXT_TERMS if term in sentence.lower())
 
         if _is_off_topic_teaser(sentence, anchor_text):
             continue
@@ -329,6 +402,7 @@ def _extractive_summary(sentences, max_sentences=None):
         score += min(anchor_overlap, 5) * 0.35
         score += anchor_similarity * 1.6
         score += important_hits * 0.2
+        score += min(context_hits, 4) * 0.12
         if any(char.isdigit() for char in sentence):
             score += 0.2
         if 12 <= len(words) <= 34:
@@ -345,13 +419,23 @@ def _extractive_summary(sentences, max_sentences=None):
     chosen = []
 
     for score, index, sentence, tokens in ranked:
-        if chosen and score < 0.95:
+        if chosen and score < 0.55:
             continue
         if any(_sentence_similarity(tokens, existing_tokens) > 0.72 for _, _, existing_tokens in chosen):
             continue
         chosen.append((index, sentence, tokens))
         if len(chosen) >= target_count:
             break
+
+    if len(chosen) < target_count:
+        for score, index, sentence, tokens in ranked:
+            if any(existing_index == index for existing_index, _, _ in chosen):
+                continue
+            if any(_sentence_similarity(tokens, existing_tokens) > 0.8 for _, _, existing_tokens in chosen):
+                continue
+            chosen.append((index, sentence, tokens))
+            if len(chosen) >= target_count:
+                break
 
     ordered = [sentence for index, sentence, tokens in sorted(chosen, key=lambda item: item[0])]
     if not ordered:
@@ -436,7 +520,6 @@ def _model_summary(sentences, max_sentences=None):
 
     target_count = _target_sentence_count(sentences, max_sentences=max_sentences)
     target_words = max(90, min(220, target_count * 28))
-    candidate_text = " ".join(sentences)
     chunks = _chunk_sentences(sentences, max_words=220)
     chunk_summaries = []
 
@@ -492,7 +575,7 @@ def summarize_text(text, max_sentences=None, prefer_model=True):
     if not clean:
         return "No content available to summarize."
 
-    headline_style_summary = _headline_fragment_summary(clean)
+    headline_style_summary = _headline_fragment_summary(raw_text)
     if headline_style_summary:
         return headline_style_summary
 
@@ -503,7 +586,7 @@ def summarize_text(text, max_sentences=None, prefer_model=True):
     if not sentences:
         return "Could not generate a meaningful summary."
 
-    if prefer_model:
+    if prefer_model and max_sentences is None and len(sentences) >= 7 and not _looks_like_headline_fragment_collection(raw_text):
         model_summary = _model_summary(sentences, max_sentences=max_sentences)
         if model_summary:
             return model_summary

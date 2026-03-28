@@ -1,20 +1,10 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import Login from './components/Login';
 import Upload from './components/Upload';
 import Result from './components/Result';
 import AdminDashboard from './components/AdminDashboard';
-
-function getStoredToken() {
-  const rawToken = localStorage.getItem('token');
-
-  if (!rawToken || rawToken === 'undefined' || rawToken === 'null') {
-    localStorage.removeItem('token');
-    return null;
-  }
-
-  return rawToken;
-}
+import { apiFetch } from './api';
 
 function getStoredUser() {
   const rawUser = localStorage.getItem('user');
@@ -33,58 +23,96 @@ function getStoredUser() {
 }
 
 function App() {
-  const [token, setToken] = useState(getStoredToken);
+  const [sessionReady, setSessionReady] = useState(false);
   const [user, setUser] = useState(getStoredUser);
   const authenticatedHome = user?.role === 'admin' ? '/admin' : '/upload';
 
-  const handleLogin = (token, user) => {
-    if (!token || token === 'undefined' || token === 'null') {
-      localStorage.removeItem('token');
-      setToken(null);
-    } else {
-      localStorage.setItem('token', token);
-      setToken(token);
-    }
+  useEffect(() => {
+    let active = true;
 
-    if (user === undefined) {
+    const hydrateSession = async () => {
+      try {
+        const response = await apiFetch('/api/session');
+        const data = await response.json();
+
+        if (!active) {
+          return;
+        }
+
+        if (response.ok && data?.authenticated && data?.user) {
+          localStorage.setItem('user', JSON.stringify(data.user));
+          setUser(data.user);
+        } else {
+          localStorage.removeItem('user');
+          setUser(null);
+        }
+      } catch (error) {
+        if (active) {
+          localStorage.removeItem('user');
+          setUser(null);
+        }
+      } finally {
+        if (active) {
+          setSessionReady(true);
+        }
+      }
+    };
+
+    hydrateSession();
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const handleLogin = (nextUser) => {
+    if (nextUser === undefined || nextUser === null) {
       localStorage.removeItem('user');
+      setUser(null);
     } else {
-      localStorage.setItem('user', JSON.stringify(user));
+      localStorage.setItem('user', JSON.stringify(nextUser));
+      setUser(nextUser);
     }
-    setUser(user ?? null);
   };
 
-  const handleLogout = () => {
-    localStorage.removeItem('token');
+  const handleLogout = async () => {
+    try {
+      await apiFetch('/api/logout', { method: 'POST' });
+    } catch (error) {
+      // Clear local state even if the request fails.
+    }
+
     localStorage.removeItem('user');
-    setToken(null);
     setUser(null);
   };
+
+  if (!sessionReady) {
+    return null;
+  }
 
   return (
     <BrowserRouter>
       <Routes>
         <Route
           path="/login"
-          element={token ? <Navigate to={authenticatedHome} /> : <Login onLogin={handleLogin} mode="user" />}
+          element={user ? <Navigate to={authenticatedHome} /> : <Login onLogin={handleLogin} mode="user" />}
         />
         <Route
           path="/admin/login"
-          element={token ? <Navigate to={authenticatedHome} /> : <Login onLogin={handleLogin} mode="admin" />}
+          element={user ? <Navigate to={authenticatedHome} /> : <Login onLogin={handleLogin} mode="admin" />}
         />
-        <Route path="/upload" element={token ? <Upload token={token} user={user} onLogout={handleLogout} /> : <Navigate to="/login" />} />
-        <Route path="/result" element={token ? <Result token={token} /> : <Navigate to="/login" />} />
+        <Route path="/upload" element={user ? <Upload user={user} onLogout={handleLogout} /> : <Navigate to="/login" />} />
+        <Route path="/result" element={user ? <Result /> : <Navigate to="/login" />} />
         <Route
           path="/admin"
           element={
-            token
+            user
               ? user?.role === 'admin'
-                ? <AdminDashboard token={token} onLogout={handleLogout} />
+                ? <AdminDashboard onLogout={handleLogout} />
                 : <Navigate to="/upload" />
               : <Navigate to="/admin/login" />
           }
         />
-        <Route path="/" element={<Navigate to={token ? authenticatedHome : '/login'} />} />
+        <Route path="/" element={<Navigate to={user ? authenticatedHome : '/login'} />} />
       </Routes>
     </BrowserRouter>
   );

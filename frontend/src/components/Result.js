@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { buildApiUrl } from '../api';
+import { apiFetch, buildApiUrl } from '../api';
 
 function readStoredAnalysis() {
   const raw = localStorage.getItem('latestAnalysis');
@@ -17,7 +17,7 @@ function readStoredAnalysis() {
   }
 }
 
-function Result({ token }) {
+function Result() {
   const location = useLocation();
   const navigate = useNavigate();
   const [analysis, setAnalysis] = useState(location.state || readStoredAnalysis());
@@ -113,11 +113,8 @@ function Result({ token }) {
         throw new Error('Summary is only available for a saved analysis');
       }
 
-      const response = await fetch(buildApiUrl(`/api/input/${analysis.inputId}/summary`), {
+      const response = await apiFetch(`/api/input/${analysis.inputId}/summary`, {
         method: 'POST',
-        headers: {
-          Authorization: `Bearer ${token}`
-        }
       });
 
       const data = await response.json();
@@ -158,11 +155,8 @@ function Result({ token }) {
         throw new Error('Detailed report is only available for a saved analysis');
       }
 
-      const response = await fetch(buildApiUrl(`/api/input/${analysis.inputId}/report`), {
+      const response = await apiFetch(`/api/input/${analysis.inputId}/report`, {
         method: 'POST',
-        headers: {
-          Authorization: `Bearer ${token}`
-        }
       });
 
       const data = await response.json();
@@ -170,11 +164,7 @@ function Result({ token }) {
         throw new Error(data.error || 'Failed to generate report');
       }
 
-      const fileResponse = await fetch(buildApiUrl(data.report_url), {
-        headers: {
-          Authorization: `Bearer ${token}`
-        }
-      });
+      const fileResponse = await apiFetch(data.report_url);
 
       if (!fileResponse.ok) {
         throw new Error('Report generated but download failed');

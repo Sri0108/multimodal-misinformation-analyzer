@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { buildApiUrl } from '../api';
+import { apiFetch } from '../api';
 
 function formatDate(value) {
   if (!value) return 'N/A';
@@ -25,7 +25,7 @@ const emptyCreateUserForm = {
   role: 'user',
 };
 
-function AdminDashboard({ token, onLogout }) {
+function AdminDashboard({ onLogout }) {
   const navigate = useNavigate();
   const [overview, setOverview] = useState(null);
   const [inputs, setInputs] = useState([]);
@@ -45,9 +45,9 @@ function AdminDashboard({ token, onLogout }) {
 
   const fetchAdminData = async () => {
     const [overviewRes, inputsRes, reportsRes] = await Promise.all([
-      fetch(buildApiUrl('/api/admin/overview'), { headers: { Authorization: `Bearer ${token}` } }),
-      fetch(buildApiUrl('/api/admin/inputs'), { headers: { Authorization: `Bearer ${token}` } }),
-      fetch(buildApiUrl('/api/admin/reports'), { headers: { Authorization: `Bearer ${token}` } }),
+      apiFetch('/api/admin/overview'),
+      apiFetch('/api/admin/inputs'),
+      apiFetch('/api/admin/reports'),
     ]);
 
     const [overviewData, inputsData, reportsData] = await Promise.all([
@@ -91,7 +91,7 @@ function AdminDashboard({ token, onLogout }) {
     return () => {
       mounted = false;
     };
-  }, [token]);
+  }, []);
 
   const handleCreateUser = async (event) => {
     event.preventDefault();
@@ -100,10 +100,9 @@ function AdminDashboard({ token, onLogout }) {
     setCreateUserSuccess('');
 
     try {
-      const response = await fetch(buildApiUrl('/api/admin/users'), {
+      const response = await apiFetch('/api/admin/users', {
         method: 'POST',
         headers: {
-          Authorization: `Bearer ${token}`,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({

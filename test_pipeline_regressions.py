@@ -70,6 +70,105 @@ class PipelineRegressionTests(unittest.TestCase):
         self.assertEqual(result["explanation"], ["No text found in image."])
         self.assertEqual(result["reason_summary"], ["No text found in image."])
 
+    @patch("ml_pipeline.analyzer.final_fusion_decision", return_value=("Likely Fake", 0.77))
+    @patch(
+        "ml_pipeline.analyzer.classify_text",
+        return_value={
+            "prediction": "Likely Fake",
+            "confidence": 0.7,
+            "explanation": ["Screenshot text looked suspicious."],
+            "scores": {"real_score": 0.28, "fake_score": 0.72},
+        },
+    )
+    @patch(
+        "ml_pipeline.analyzer.analyze_nlp",
+        return_value={
+            "sentiment": "negative",
+            "signals": {"suspicious_keywords": 2},
+            "risk_score": 0.7,
+            "credibility_score": 0.2,
+        },
+    )
+    @patch("ml_pipeline.analyzer.detect_manipulation", return_value=0.26)
+    @patch(
+        "ml_pipeline.analyzer.extract_text_from_image",
+        return_value="Urgent OTP request shown on the captured banking screen.",
+    )
+    @patch("ml_pipeline.analyzer.os.path.exists", return_value=True)
+    def test_analyze_content_supports_screenshot_content_type(
+        self,
+        _mock_exists,
+        _mock_extract,
+        _mock_detect,
+        _mock_nlp,
+        _mock_classify,
+        _mock_fusion,
+    ):
+        result = analyze_content("screenshot", "", "uploads/captured-screen.png")
+
+        self.assertEqual(result["prediction"], "Likely Fake")
+        self.assertEqual(result["content_source"], "screenshot_ocr")
+        self.assertEqual(result["manipulation_score"], 0.26)
+        self.assertIn("Urgent OTP request shown on the captured banking screen.", result["extracted_text"])
+
+    @patch("ml_pipeline.analyzer.final_fusion_decision", return_value=("Likely Real", 0.86))
+    @patch(
+        "ml_pipeline.analyzer.classify_text",
+        return_value={
+            "prediction": "Likely Real",
+            "confidence": 0.8,
+            "explanation": ["Transcript content aligned with trusted evidence."],
+            "scores": {"real_score": 0.81, "fake_score": 0.19},
+        },
+    )
+    @patch(
+        "ml_pipeline.analyzer.verify_claim_with_sources",
+        return_value={
+            "reason_summary": ["Found supporting evidence from trusted publishers."],
+            "trusted_sources": [{"source": "apnews.com", "url": "https://apnews.com/example"}],
+            "claim_category": "general",
+            "verification_mode": "classifier_fallback",
+            "source_evidence_count": 1,
+            "source_verdict": "Uncertain",
+            "source_confidence": 0.5,
+        },
+    )
+    @patch(
+        "ml_pipeline.analyzer.analyze_nlp",
+        return_value={
+            "sentiment": "neutral",
+            "signals": {"source_unclear": False},
+            "risk_score": 0.25,
+            "credibility_score": 0.68,
+        },
+    )
+    @patch(
+        "ml_pipeline.analyzer.extract_youtube_content",
+        return_value={
+            "video_id": "abc123xyz01",
+            "url": "https://www.youtube.com/watch?v=abc123xyz01",
+            "title": "Sample YouTube report",
+            "author_name": "TruthCheck",
+            "text": "Sample YouTube report Channel: TruthCheck Transcript text from the video.",
+            "source_type": "youtube_transcript",
+            "source_note": "",
+        },
+    )
+    def test_analyze_content_supports_youtube_links(
+        self,
+        _mock_youtube,
+        _mock_nlp,
+        mock_verify,
+        _mock_classify,
+        _mock_fusion,
+    ):
+        result = analyze_content("youtube", "https://www.youtube.com/watch?v=abc123xyz01", None)
+
+        self.assertEqual(result["prediction"], "Likely Real")
+        self.assertEqual(result["content_source"], "youtube_transcript")
+        self.assertIn("Transcript text from the video.", result["extracted_text"])
+        mock_verify.assert_called_once()
+
 
 if __name__ == "__main__":
     unittest.main()

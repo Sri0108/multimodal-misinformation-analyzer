@@ -12,7 +12,7 @@ An AI-driven system for detecting fake and manipulated content across text, imag
 
 
 - PDF report generation
-- User authentication (JWT)
+- User authentication with JWT cookie sessions
 - Admin dashboard
 - MySQL database
 
@@ -53,6 +53,14 @@ mysql -u root -p < database/schema.sql
 ```bash
 pip install -r requirements.txt
 ```
+
+Optional enhanced NLP stack:
+
+```bash
+pip install -r requirements-advanced-nlp.txt
+```
+
+This enables the optional spaCy, NLTK, BERT, and TensorFlow-assisted signals in `ml_pipeline/nlp_module.py`.
 
 3. **Frontend Setup**
 
@@ -168,7 +176,7 @@ If `SEED_DEFAULT_ADMIN=true`, the app seeds this admin user on startup:
 ## Usage
 
 1. Register/Login at `http://localhost:3000`
-2. Upload content (text, URL, image, or document)
+2. Upload content (text, URL, YouTube, image, screenshot, or document)
 3. Receive analysis with prediction, confidence score, and manipulation score
 4. Download PDF report
 5. Admin can view all inputs and reports at `/admin`
@@ -177,6 +185,8 @@ If `SEED_DEFAULT_ADMIN=true`, the app seeds this admin user on startup:
 
 - `POST /api/register` - Register new user
 - `POST /api/login` - Login user
+- `GET /api/session` - Read the current cookie-backed session
+- `POST /api/logout` - Invalidate the current session and clear cookies
 - `POST /api/analyze` - Analyze content (requires auth)
 - `GET /api/report/<id>` - Download report (requires auth)
 - `GET /api/admin/inputs` - Get all inputs (admin only)
@@ -205,13 +215,38 @@ multimodal-misinformation-analyzer/
 └── reports/             # Generated reports
 ```
 
-## Security Notes
+## Chapter 7: Security And Session Management
 
-- Change default SECRET_KEY and JWT_SECRET_KEY
-- Update admin password
-- Use HTTPS in production
-- Set up proper database credentials
-- Enable CORS only for trusted domains
+The authentication flow now uses JWT access tokens stored in HTTPOnly cookies instead of exposing session tokens to browser JavaScript.
+
+### Cookie settings
+
+- `JWT_COOKIE_HTTPONLY=True`
+- `JWT_COOKIE_SAMESITE='Lax'`
+- `JWT_ACCESS_TOKEN_EXPIRES=1 hour`
+- `JWT_COOKIE_SECURE=True` in production
+
+For local development, `JWT_COOKIE_SECURE` can be set to `false` so cookies continue to work over plain `http://localhost`.
+
+### Session lifecycle
+
+- `/api/login` creates a JWT session and sets the access cookie
+- `/api/session` lets the frontend restore the authenticated user after refresh
+- `/api/logout` revokes the current token `jti`, stores it in the blocklist table, and clears the cookies
+- Revoked or expired cookies are rejected server-side
+
+### Frontend security changes
+
+- The React app no longer stores auth tokens in `localStorage`
+- Browser requests use cookie-backed sessions with `credentials: 'include'`
+- Logout clears both the server session and cached local user state
+
+### Operational notes
+
+- Change `SECRET_KEY` and `JWT_SECRET_KEY` in production
+- Change the seeded admin credentials before public deployment
+- Use HTTPS in production so secure cookies are always transmitted safely
+- Keep CORS restricted to trusted origins when deploying frontend and backend separately
 
 ## Future Enhancements
 

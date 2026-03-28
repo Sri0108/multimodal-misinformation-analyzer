@@ -26,6 +26,8 @@ frontend/dist/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+frontend_start.log
+frontend_start.err.log
 
 # App-generated files
 uploads/

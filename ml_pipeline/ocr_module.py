@@ -43,10 +43,13 @@ def _configure_tesseract():
 
 def _is_meaningful_word(word):
     letters = re.sub(r"[^A-Za-z']", "", word or "")
-    if len(letters) < 2:
+    if len(letters) < 3:
         return False
 
     lowered = letters.lower()
+    if re.search(r"yy", lowered) and len(lowered) <= 6:
+        return False
+
     has_vowel = bool(re.search(r"[aeiouy]", lowered))
     has_consonant = bool(re.search(r"[bcdfghjklmnpqrstvwxyz]", lowered))
     return has_vowel and has_consonant

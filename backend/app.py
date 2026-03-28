@@ -4,7 +4,7 @@ import uuid
 import mimetypes
 import html
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
 from pathlib import Path
 import xml.etree.ElementTree as ET
@@ -23,16 +23,40 @@ pymysql.install_as_MySQLdb()
 
 from flask import Flask, request, jsonify, send_file, send_from_directory
 from flask_cors import CORS
+try:
+    from flask_jwt_extended import (
+        JWTManager,
+        create_access_token,
+        get_jwt,
+        get_jwt_identity,
+        set_access_cookies,
+        unset_jwt_cookies,
+        verify_jwt_in_request,
+    )
+except ImportError as error:
+    if "DecodeError" in str(error) and "jwt" in str(error):
+        raise ImportError(
+            "Detected the incompatible 'jwt' package instead of 'PyJWT'. "
+            "Run: pip uninstall -y jwt && pip install --upgrade PyJWT Flask-JWT-Extended"
+        ) from error
+    raise
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
 
-from backend.models import db, User, Input, Report
+from backend.models import db, User, Input, Report, TokenBlocklist
 from ml_pipeline.analyzer import analyze_content
 from ml_pipeline.report_generator import generate_pdf_report
 from ml_pipeline.summary_module import summarize_text
 from ml_pipeline.ocr_module import extract_text_from_image
 from ml_pipeline.document_module import extract_text_from_document
 from ml_pipeline.url_module import fetch_and_extract_from_url
+from ml_pipeline.youtube_module import (
+    build_youtube_summary_unavailable_message,
+    extract_youtube_content,
+    extract_youtube_text,
+    get_youtube_text_for_summary,
+    is_youtube_url,
+)
 
 # -------------------------------
 # APP INIT
@@ -45,13 +69,23 @@ app = Flask(
     static_folder=str(frontend_build_dir) if frontend_build_dir.exists() else None,
     static_url_path="/",
 )
-CORS(app)
+CORS(app, supports_credentials=True)
 
 # -------------------------------
 # CONFIG (Use ENV in production)
 # -------------------------------
 
 app.config["SECRET_KEY"] = os.getenv("SECRET_KEY", "dev-secret")
+app.config["JWT_SECRET_KEY"] = os.getenv("JWT_SECRET_KEY", app.config["SECRET_KEY"])
+app.config["JWT_TOKEN_LOCATION"] = ["cookies", "headers"]
+app.config["JWT_COOKIE_HTTPONLY"] = True
+app.config["JWT_COOKIE_SAMESITE"] = os.getenv("JWT_COOKIE_SAMESITE", "Lax")
+app.config["JWT_ACCESS_TOKEN_EXPIRES"] = timedelta(hours=int(os.getenv("JWT_ACCESS_TOKEN_HOURS", "1")))
+app.config["JWT_COOKIE_SECURE"] = os.getenv(
+    "JWT_COOKIE_SECURE",
+    "false" if os.getenv("FLASK_ENV", "").lower() == "development" else "true",
+).lower() in {"1", "true", "yes"}
+app.config["JWT_COOKIE_CSRF_PROTECT"] = False
 
 def normalize_database_url(url_value):
     if not url_value:
@@ -96,9 +130,19 @@ os.makedirs(app.config["UPLOAD_FOLDER"], exist_ok=True)
 os.makedirs(app.config["REPORT_FOLDER"], exist_ok=True)
 
 db.init_app(app)
+jwt = JWTManager(app)
 
 ALLOWED_EXTENSIONS = {"png", "jpg", "jpeg", "pdf", "txt", "docx"}
 MAX_FILE_SIZE_MB = 10
+TEXT_INPUT_TYPES = {"text", "url", "youtube"}
+FILE_INPUT_TYPES = {"image", "document", "screenshot"}
+IMAGE_INPUT_TYPES = {"image", "screenshot"}
+ALLOWED_CONTENT_TYPES = TEXT_INPUT_TYPES | FILE_INPUT_TYPES
+FILE_EXTENSIONS_BY_CONTENT_TYPE = {
+    "image": {"png", "jpg", "jpeg"},
+    "screenshot": {"png", "jpg", "jpeg"},
+    "document": {"pdf", "txt", "docx"},
+}
 MIMETYPE_TO_EXTENSION = {
     "application/pdf": ".pdf",
     "text/plain": ".txt",
@@ -208,39 +252,74 @@ def initialize_database():
 initialize_database()
 
 
+@jwt.token_in_blocklist_loader
+def is_token_revoked(_jwt_header, jwt_payload):
+    jti = jwt_payload.get("jti")
+    if not jti:
+        return True
+    return db.session.query(TokenBlocklist.id).filter_by(jti=jti).scalar() is not None
+
+
+@jwt.unauthorized_loader
+def jwt_missing_token_callback(reason):
+    return jsonify({"error": "Authentication required", "detail": reason}), 401
+
+
+@jwt.invalid_token_loader
+def jwt_invalid_token_callback(reason):
+    return jsonify({"error": "Invalid session", "detail": reason}), 401
+
+
+@jwt.expired_token_loader
+def jwt_expired_token_callback(_jwt_header, _jwt_payload):
+    response = jsonify({"error": "Session expired"})
+    unset_jwt_cookies(response)
+    return response, 401
+
+
+@jwt.revoked_token_loader
+def jwt_revoked_token_callback(_jwt_header, _jwt_payload):
+    response = jsonify({"error": "Session has been logged out"})
+    unset_jwt_cookies(response)
+    return response, 401
+
+
 # -------------------------------
 # HELPERS
 # -------------------------------
 
-def allowed_file(filename):
-    return "." in filename and filename.rsplit(".", 1)[1].lower() in ALLOWED_EXTENSIONS
+def allowed_file(filename, allowed_extensions=None):
+    permitted_extensions = allowed_extensions or ALLOWED_EXTENSIONS
+    return "." in filename and filename.rsplit(".", 1)[1].lower() in permitted_extensions
 
 
-def normalize_filename(file):
+def normalize_filename(file, allowed_extensions=None):
+    permitted_extensions = allowed_extensions or ALLOWED_EXTENSIONS
     original_name = (file.filename or "").strip()
     guessed_extension = MIMETYPE_TO_EXTENSION.get(file.mimetype, "")
 
-    if original_name and allowed_file(original_name):
+    if original_name and allowed_file(original_name, permitted_extensions):
         return original_name
 
     base_name = secure_filename(Path(original_name).stem) if original_name else "upload"
     extension = Path(original_name).suffix.lower() if original_name else guessed_extension
 
-    if extension not in {f".{ext}" for ext in ALLOWED_EXTENSIONS}:
+    if extension not in {f".{ext}" for ext in permitted_extensions}:
         guessed_from_type = mimetypes.guess_extension(file.mimetype or "") or guessed_extension
         extension = guessed_from_type if guessed_from_type else extension
 
-    if extension not in {f".{ext}" for ext in ALLOWED_EXTENSIONS}:
+    if extension not in {f".{ext}" for ext in permitted_extensions}:
         return None
 
     return f"{base_name or 'upload'}{extension}"
 
 
-def validate_file(file):
+def validate_file(file, content_type=None):
     if not file:
         return False, "No file provided"
 
-    normalized_name = normalize_filename(file)
+    permitted_extensions = FILE_EXTENSIONS_BY_CONTENT_TYPE.get(content_type, ALLOWED_EXTENSIONS)
+    normalized_name = normalize_filename(file, permitted_extensions)
     if not normalized_name:
         return False, "File type not allowed"
 
@@ -261,7 +340,7 @@ def get_user_from_token():
     return None
 
 
-def get_authenticated_user():
+def _get_legacy_authenticated_user():
     token = get_user_from_token()
     if not token:
         return None
@@ -272,6 +351,21 @@ def get_authenticated_user():
         return None
 
     return db.session.get(User, user_id)
+
+
+def get_authenticated_user():
+    try:
+        verify_jwt_in_request(optional=True, locations=["cookies", "headers"])
+        identity = get_jwt_identity()
+        if identity is not None:
+            try:
+                return db.session.get(User, int(identity))
+            except (TypeError, ValueError):
+                return None
+    except Exception:
+        pass
+
+    return _get_legacy_authenticated_user()
 
 
 def require_admin_user():
@@ -285,6 +379,27 @@ def require_admin_user():
     return user, None
 
 
+def issue_login_response(user):
+    access_token = create_access_token(
+        identity=str(user.id),
+        additional_claims={"role": user.role, "email": user.email},
+    )
+    response = jsonify(
+        {
+            "message": "Login successful",
+            "user": {
+                "id": user.id,
+                "email": user.email,
+                "username": user.username,
+                "role": user.role,
+            },
+            "session_expires_in_seconds": int(app.config["JWT_ACCESS_TOKEN_EXPIRES"].total_seconds()),
+        }
+    )
+    set_access_cookies(response, access_token)
+    return response
+
+
 def serialize_user(user):
     return {
         "id": user.id,
@@ -293,6 +408,12 @@ def serialize_user(user):
         "role": user.role,
         "created_at": user.created_at.isoformat() if user.created_at else None,
     }
+
+
+def user_can_access_input(user, input_record):
+    if not user or not input_record:
+        return False
+    return user.role == "admin" or user.id == input_record.user_id
 
 
 def resolve_saved_file_path(file_path):
@@ -304,7 +425,18 @@ def extract_text_for_input(input_record):
     if input_record.content_type == "text":
         return input_record.content or ""
 
+    if input_record.content_type == "youtube":
+        try:
+            return extract_youtube_text(input_record.content or "")
+        except Exception:
+            return ""
+
     if input_record.content_type == "url":
+        if is_youtube_url(input_record.content or ""):
+            try:
+                return extract_youtube_text(input_record.content or "")
+            except Exception:
+                return ""
         try:
             url_data = fetch_and_extract_from_url(input_record.content or "")
             return url_data.get("text", "")
@@ -313,7 +445,7 @@ def extract_text_for_input(input_record):
 
     resolved_file_path = resolve_saved_file_path(input_record.file_path)
 
-    if input_record.content_type == "image" and resolved_file_path and os.path.exists(resolved_file_path):
+    if input_record.content_type in IMAGE_INPUT_TYPES and resolved_file_path and os.path.exists(resolved_file_path):
         try:
             return extract_text_from_image(resolved_file_path)
         except Exception:
@@ -577,16 +709,49 @@ def login():
     if not user or not _password_matches(user.password, attempted_password):
         return jsonify({"error": "Invalid credentials"}), 401
 
-    return jsonify({
-        "message": "Login successful",
-        "token": str(user.id),  # Replace with JWT in production
-        "user": {
-            "id": user.id,
-            "email": user.email,
-            "username": user.username,
-            "role": user.role
-        }
-    })
+    return issue_login_response(user)
+
+
+@app.route("/api/session", methods=["GET"])
+def session_status():
+    user = get_authenticated_user()
+    if not user:
+        response = jsonify({"authenticated": False, "user": None})
+        unset_jwt_cookies(response)
+        return response, 401
+
+    return jsonify({"authenticated": True, "user": serialize_user(user)})
+
+
+@app.route("/api/logout", methods=["POST"])
+def logout():
+    response = jsonify({"message": "Logged out"})
+
+    try:
+        verify_jwt_in_request(locations=["cookies", "headers"])
+        jwt_payload = get_jwt()
+        jti = jwt_payload.get("jti")
+        identity = get_jwt_identity()
+        expires_at_ts = jwt_payload.get("exp")
+
+        if jti:
+            expires_at = datetime.fromtimestamp(expires_at_ts, tz=timezone.utc) if expires_at_ts else None
+            already_revoked = db.session.query(TokenBlocklist.id).filter_by(jti=jti).scalar()
+            if not already_revoked:
+                db.session.add(
+                    TokenBlocklist(
+                        jti=jti,
+                        user_id=int(identity) if identity is not None and str(identity).isdigit() else None,
+                        token_type=jwt_payload.get("type", "access"),
+                        expires_at=expires_at,
+                    )
+                )
+                db.session.commit()
+    except Exception:
+        pass
+
+    unset_jwt_cookies(response)
+    return response, 200
 
 
 # -------------------------------
@@ -599,7 +764,9 @@ def analyze():
         payload = request.get_json(silent=True) if request.is_json else None
         request_data = payload or request.form
 
-        user_id = request_data.get("user_id") or get_user_from_token()
+        current_user = get_authenticated_user()
+        requested_user_id = request_data.get("user_id")
+        user_id = requested_user_id or (current_user.id if current_user else None)
         content_type = request_data.get("content_type")
         content = request_data.get("content", "")
         uploaded_file = request.files.get("file")
@@ -609,14 +776,17 @@ def analyze():
         # -------------------------------
 
         if not user_id:
-            return jsonify({"error": "user_id required"}), 400
+            return jsonify({"error": "Authentication required"}), 401
 
         try:
             user_id = int(user_id)
         except:
             return jsonify({"error": "Invalid user_id"}), 400
 
-        if content_type not in ["text", "url", "image", "document"]:
+        if current_user and current_user.role != "admin" and current_user.id != user_id:
+            return jsonify({"error": "You cannot submit content for another user"}), 403
+
+        if content_type not in ALLOWED_CONTENT_TYPES:
             return jsonify({"error": "Invalid content_type"}), 400
 
         file_path = None
@@ -625,8 +795,15 @@ def analyze():
         # FILE HANDLING
         # -------------------------------
 
+        if content_type in FILE_INPUT_TYPES and not uploaded_file:
+            return jsonify({"error": "A file is required for this content type"}), 400
+
+        if content_type in TEXT_INPUT_TYPES and not str(content or "").strip():
+            label = "a YouTube link" if content_type == "youtube" else ("a URL" if content_type == "url" else "text content")
+            return jsonify({"error": f"Please provide {label}"}), 400
+
         if uploaded_file:
-            is_valid, validated_name = validate_file(uploaded_file)
+            is_valid, validated_name = validate_file(uploaded_file, content_type=content_type)
             if not is_valid:
                 return jsonify({"error": validated_name}), 400
 
@@ -675,13 +852,36 @@ def analyze():
 
 @app.route("/api/input/<int:input_id>/summary", methods=["POST"])
 def generate_summary(input_id):
+    current_user = get_authenticated_user()
+    if not current_user:
+        return jsonify({"error": "Authentication required"}), 401
+
     input_record = db.session.get(Input, input_id)
 
     if not input_record:
         return jsonify({"error": "Input not found"}), 404
 
-    text = extract_text_for_input(input_record) or input_record.content or ""
-    summary = summarize_text(text)
+    if not user_can_access_input(current_user, input_record):
+        return jsonify({"error": "Access denied"}), 403
+
+    youtube_result = None
+    if input_record.content_type == "youtube" or (
+        input_record.content_type == "url" and is_youtube_url(input_record.content or "")
+    ):
+        try:
+            youtube_result = extract_youtube_content(input_record.content or "")
+        except Exception:
+            youtube_result = None
+
+    if youtube_result:
+        text = youtube_result.get("summary_text") or get_youtube_text_for_summary(youtube_result)
+        if youtube_result.get("source_type") == "youtube_metadata":
+            summary = build_youtube_summary_unavailable_message(youtube_result)
+        else:
+            summary = summarize_text(text)
+    else:
+        text = extract_text_for_input(input_record) or input_record.content or ""
+        summary = summarize_text(text)
 
     if input_record.content_type == "url" and summary == "Could not generate a meaningful summary.":
         if text.startswith("Could not extract full article."):
@@ -704,10 +904,17 @@ def generate_summary(input_id):
 
 @app.route("/api/input/<int:input_id>/report", methods=["POST"])
 def generate_report(input_id):
+    current_user = get_authenticated_user()
+    if not current_user:
+        return jsonify({"error": "Authentication required"}), 401
+
     input_record = db.session.get(Input, input_id)
 
     if not input_record:
         return jsonify({"error": "Input not found"}), 404
+
+    if not user_can_access_input(current_user, input_record):
+        return jsonify({"error": "Access denied"}), 403
 
     result = analyze_content(
         input_record.content_type,
@@ -729,14 +936,22 @@ def generate_report(input_id):
 
 @app.route("/api/report/<int:report_id>")
 def report(report_id):
+    current_user = get_authenticated_user()
+    if not current_user:
+        return jsonify({"error": "Authentication required"}), 401
+
     report = db.session.get(Report, report_id)
+    input_record = db.session.get(Input, report.input_id) if report else None
 
     report_path = resolve_saved_file_path(report.report_path) if report else None
     if report and report_path and report.report_path != report_path:
         report.report_path = report_path
         db.session.commit()
 
-    if not report or not report_path or not os.path.exists(report_path):
+    if not report or not input_record or not user_can_access_input(current_user, input_record):
+        return jsonify({"error": "Report not found"}), 404
+
+    if not report_path or not os.path.exists(report_path):
         return jsonify({"error": "Report not found"}), 404
 
     return send_file(report_path, as_attachment=True)

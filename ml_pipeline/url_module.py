@@ -110,20 +110,42 @@ def dedupe_blocks(blocks):
     return unique
 
 
+def derive_intro_sentence(text):
+    cleaned = clean_text(text)
+    if not cleaned:
+        return ""
+
+    for marker in [" after ", " amid ", " while ", " following ", " as "]:
+        marker_index = cleaned.lower().find(marker)
+        if marker_index >= 40:
+            candidate = cleaned[:marker_index].strip(" ,;:")
+            if len(candidate.split()) >= 8:
+                return ensure_terminal_punctuation(candidate)
+
+    match = re.match(r"(.+?[.!?])(?:\s|$)", cleaned)
+    if match:
+        return clean_text(match.group(1))
+
+    return ensure_terminal_punctuation(cleaned)
+
+
 def trim_to_sentence_boundary(text, limit):
     cleaned = clean_text(text)
     if len(cleaned) <= limit:
         return cleaned
 
     truncated = cleaned[:limit]
-    last_boundary = max(
-        truncated.rfind(". "),
-        truncated.rfind("! "),
-        truncated.rfind("? "),
-    )
+    sentence_boundaries = [match.end() for match in re.finditer(r'[.!?]["\')\]]?(?:\s|$)', truncated)]
+    if sentence_boundaries:
+        last_boundary = sentence_boundaries[-1]
+        if last_boundary >= int(limit * 0.6):
+            return truncated[:last_boundary].strip()
 
-    if last_boundary >= int(limit * 0.6):
-        return truncated[: last_boundary + 1].strip()
+    extended_match = re.search(r'[.!?]["\')\]]?(?:\s|$)', cleaned[limit:])
+    if extended_match:
+        boundary = limit + extended_match.end()
+        if boundary <= min(len(cleaned), limit + 100):
+            return cleaned[:boundary].strip()
 
     return truncated.rsplit(" ", 1)[0].strip()
 
@@ -192,6 +214,11 @@ def parse_html(content):
         if word_count > best_word_count:
             best_word_count = word_count
             best_paragraphs = paragraphs
+
+    if not candidate_blocks and best_paragraphs:
+        derived_intro = derive_intro_sentence(best_paragraphs[0])
+        if derived_intro and not is_low_signal_block(derived_intro):
+            candidate_blocks.append(derived_intro)
 
     candidate_blocks.extend(best_paragraphs)
     return join_text_blocks(dedupe_blocks(candidate_blocks))
