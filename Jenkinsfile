@@ -2,8 +2,8 @@ pipeline {
     agent any
 
     environment {
-        BACKEND_IMAGE = "sri0108/misinformation-backend"
-        FRONTEND_IMAGE = "sri0108/misinformation-frontend"
+        BACKEND_IMAGE = "srikandala/misinformation-backend"
+        FRONTEND_IMAGE = "srikandala/misinformation-frontend"
         IMAGE_TAG = "${BUILD_NUMBER}"
     }
 
