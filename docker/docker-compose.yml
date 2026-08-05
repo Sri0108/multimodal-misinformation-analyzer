@@ -1,0 +1,71 @@
+services:
+
+  mysql:
+    image: mysql:8.4
+    container_name: mysql
+
+    restart: unless-stopped
+
+    environment:
+      MYSQL_ROOT_PASSWORD: root123
+      MYSQL_DATABASE: misinformation_db
+
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ../database/schema.sql:/docker-entrypoint-initdb.d/schema.sql
+
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-proot123"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+
+    networks:
+      - app-network
+
+
+  backend:
+    image: sri0108/misinformation-backend:v1
+
+    container_name: backend
+
+    restart: unless-stopped
+
+    depends_on:
+      mysql:
+        condition: service_healthy
+
+    env_file:
+      - ../.env
+
+    ports:
+      - "5000:5000"
+
+    networks:
+      - app-network
+
+
+  frontend:
+    image: sri0108/misinformation-frontend:v1
+
+    container_name: frontend
+
+    restart: unless-stopped
+
+    depends_on:
+      - backend
+
+    ports:
+      - "3000:80"
+
+    networks:
+      - app-network
+
+
+networks:
+  app-network:
+    driver: bridge
+
+
+volumes:
+  mysql_data:

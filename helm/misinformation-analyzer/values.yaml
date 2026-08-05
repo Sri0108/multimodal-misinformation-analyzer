@@ -1,0 +1,86 @@
+
+
+backend:
+  replicaCount: 1
+  resources:
+    requests:
+      cpu: 200m
+      memory: 512Mi
+
+    limits:
+      cpu: 500m
+      memory: 1Gi
+
+  image:
+    repository: sri0108/misinformation-backend
+    tag: v1
+    pullPolicy: IfNotPresent
+
+  service:
+    type: ClusterIP
+    port: 5000
+
+frontend:
+  replicaCount: 1
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "128Mi"
+
+    limits:
+      cpu: "250m"
+      memory: "256Mi"
+
+  image:
+    repository: sri0108/misinformation-frontend
+    tag: v1
+    pullPolicy: IfNotPresent
+
+  service:
+    type: ClusterIP
+    port: 80
+
+mysql:
+  replicaCount: 1
+
+  resources:
+    requests:
+       cpu: 250m
+       memory: 256Mi
+
+    limits:
+          cpu: 500m
+          memory: 512Mi
+
+  image:
+    repository: mysql
+    tag: "8.4"
+    pullPolicy: IfNotPresent
+
+  service:
+    type: ClusterIP
+    port: 3306
+
+  persistence:
+    size: 5Gi
+
+  rootPassword: root123
+  database: misinformation_db
+
+
+config:
+  databaseUrl: mysql+pymysql://root:root123@mysql:3306/misinformation_db
+  uploadFolder: uploads
+  reportFolder: reports
+  tesseractPath: /usr/bin/tesseract
+  flaskEnv: development
+  flaskDebug: "true"
+
+secret:
+  jwtSecret: jwt-super-secret-key
+  secretKey: super-secret-key
+
+ingress:
+  enabled: true
+  className: nginx
+  host: localhost

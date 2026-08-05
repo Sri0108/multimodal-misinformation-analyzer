@@ -1,0 +1,62 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mysql
+  namespace: {{ .Release.Namespace }}
+
+spec:
+  replicas: {{ .Values.mysql.replicaCount }}
+
+  selector:
+    matchLabels:
+      app: mysql
+
+  template:
+    metadata:
+      labels:
+        app: mysql
+
+    spec:
+      containers:
+        - name: mysql
+
+          image: "{{ .Values.mysql.image.repository }}:{{ .Values.mysql.image.tag }}"
+          imagePullPolicy: "{{ .Values.mysql.image.pullPolicy }}"
+          ports:
+            - containerPort: {{ .Values.mysql.service.port }}
+
+          env:
+            - name: MYSQL_ROOT_PASSWORD
+              value: "{{ .Values.mysql.rootPassword }}"
+
+            - name: MYSQL_DATABASE
+              value: "{{ .Values.mysql.database }}"
+
+          volumeMounts:
+            - name: mysql-storage
+              mountPath: /var/lib/mysql
+
+          resources:
+            requests:
+              cpu: {{ .Values.mysql.resources.requests.cpu | quote }}
+              memory: {{ .Values.mysql.resources.requests.memory | quote }}
+
+            limits:
+              cpu: {{ .Values.mysql.resources.limits.cpu | quote }}
+              memory: {{ .Values.mysql.resources.limits.memory | quote }}
+
+          readinessProbe:
+            tcpSocket:
+              port: {{ .Values.mysql.service.port }}
+            initialDelaySeconds: 15
+
+          livenessProbe:
+            tcpSocket:
+              port: {{ .Values.mysql.service.port }}
+            initialDelaySeconds: 30
+  
+      volumes:
+        - name: mysql-storage
+
+          persistentVolumeClaim:
+            claimName: mysql-pvc

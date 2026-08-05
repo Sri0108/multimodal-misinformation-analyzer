@@ -1,0 +1,27 @@
+🎉 Misinformation Analyzer deployed successfully!
+
+Release Name:
+{{ .Release.Name }}
+
+Namespace:
+{{ .Release.Namespace }}
+
+Check Pods
+
+kubectl get pods -n {{ .Release.Namespace }}
+
+Check Services
+
+kubectl get svc -n {{ .Release.Namespace }}
+
+Check Ingress
+
+kubectl get ingress -n {{ .Release.Namespace }}
+
+Frontend
+
+http://localhost
+
+Backend Health
+
+http://localhost/api/health
