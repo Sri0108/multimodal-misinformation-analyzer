@@ -89,16 +89,15 @@ pipeline {
                 '''
             }
         }
-
         stage('Deploy to Kubernetes') {
             steps {
                 sh '''
                 helm upgrade --install misinformation \
                 helm/misinformation-analyzer \
                 -n devops-lab \
-                --wait \
-                --timeout 5m \
+                --set backend.image.repository=${BACKEND_IMAGE} \
                 --set backend.image.tag=${IMAGE_TAG} \
+                --set frontend.image.repository=${FRONTEND_IMAGE} \
                 --set frontend.image.tag=${IMAGE_TAG}
                 '''
             }
@@ -107,12 +106,13 @@ pipeline {
         stage('Verify Deployment') {
             steps {
                 sh '''
-                kubectl rollout status deployment/backend -n devops-lab
-                kubectl rollout status deployment/frontend -n devops-lab
+                kubectl rollout status deployment/backend -n devops-lab --timeout=600s
+                kubectl rollout status deployment/frontend -n devops-lab --timeout=600s
+
+                kubectl get pods -n devops-lab
                 '''
             }
         }
-
     }
 
     post {
