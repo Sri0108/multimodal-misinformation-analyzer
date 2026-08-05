@@ -12,7 +12,7 @@ backend:
       memory: 1Gi
 
   image:
-    repository: sri0108/misinformation-backend
+    repository: srikandala/misinformation-backend
     tag: v1
     pullPolicy: IfNotPresent
 
@@ -32,7 +32,7 @@ frontend:
       memory: "256Mi"
 
   image:
-    repository: sri0108/misinformation-frontend
+    repository: srikandala/misinformation-frontend
     tag: v1
     pullPolicy: IfNotPresent
 
