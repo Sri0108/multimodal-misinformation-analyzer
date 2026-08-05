@@ -51,7 +51,64 @@ pipeline {
         stage('Verify Images') {
             steps {
                 sh '''
-                docker images | grep misinformation
+                 docker image inspect ${BACKEND_IMAGE}:${IMAGE_TAG}
+                 docker image inspect ${FRONTEND_IMAGE}:${IMAGE_TAG}
+                '''
+            }
+        }
+
+        stage('Docker Login') {
+            steps {
+                withCredentials([usernamePassword(
+                    credentialsId: 'dockerhub-creds',
+                    usernameVariable: 'DOCKER_USER',
+                    passwordVariable: 'DOCKER_PASS'
+                )]) {
+
+                    sh '''
+                    echo "$DOCKER_PASS" | docker login \
+                        -u "$DOCKER_USER" \
+                        --password-stdin
+                    '''
+                }
+            }
+        }
+
+        stage('Push Backend Image') {
+            steps {
+                sh '''
+                docker push ${BACKEND_IMAGE}:${IMAGE_TAG}
+                '''
+            }
+        }
+
+        stage('Push Frontend Image') {
+            steps {
+                sh '''
+                docker push ${FRONTEND_IMAGE}:${IMAGE_TAG}
+                '''
+            }
+        }
+
+        stage('Deploy to Kubernetes') {
+            steps {
+                sh '''
+                helm upgrade --install misinformation \
+                helm/misinformation-analyzer \
+                -n devops-lab \
+                --wait \
+                --timeout 5m \
+                --set backend.image.tag=${IMAGE_TAG} \
+                --set frontend.image.tag=${IMAGE_TAG}
+                '''
+            }
+        }
+
+        stage('Verify Deployment') {
+            steps {
+                sh '''
+                kubectl rollout status deployment/backend -n devops-lab
+                kubectl rollout status deployment/frontend -n devops-lab
                 '''
             }
         }
@@ -59,8 +116,12 @@ pipeline {
     }
 
     post {
+        always {
+            sh 'docker logout || true'
+        }
+
         success {
-            echo "Images built successfully."
+            echo "application deployed successfully."
         }
 
         failure {
